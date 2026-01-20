@@ -1,0 +1,32 @@
+name: Build and Deploy mdBook
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+
+      - name: Setup mdBook
+        uses: peaceiris/actions-mdbook@v2
+        with:
+          mdbook-version: 'latest' # Or specify a version, e.g., '0.4.38'
+      - name: Setup mermaid
+        run: cargo install mdbook-mermaid --force
+        
+      - name: Build book
+        run: mdbook build
+
+      - name: Deploy to GitHub Pages repo
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          personal_token: ${{ secrets.DOCS_DEPLOY_TOKEN }}
+          external_repository: networknt/networknt.github.io
+          publish_dir: ./book
+          publish_branch: master
