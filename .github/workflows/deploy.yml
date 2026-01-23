@@ -30,3 +30,4 @@ jobs:
           external_repository: networknt/networknt.github.io
           publish_dir: ./book
           publish_branch: master
+          cname: www.networknt.com
