@@ -1,3 +1,6 @@
 # Summary
 
-- [Chapter 1](./chapter_1.md)
+- [Introduction](./introduction.md)
+- [Architecture](./architecture.md)
+- [Design](./design.md)
+  - [MCP Rotuer](./design/mcp-router.md)
