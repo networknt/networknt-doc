@@ -147,6 +147,158 @@ This ensures no race conditions or redundant file I/O operations occur in high-c
     - **Step 4e**: `MyHandler` processes request with NEW configuration.
 5. **Subsequent Requests**: Step 4d is skipped; data is served instantly from memory.
 
+## Configuration Consistency During Request Processing
+
+### Can Config Objects Change During a Request?
+
+A common question arises: **Can the config object created in `handleRequest` be changed during the request/response exchange?**
+
+**Short Answer**: Theoretically possible but extremely unlikely, and the design handles this correctly.
+
+### Understanding the Behavior
+
+When a handler processes a request using the recommended pattern:
+
+```java
+public void handleRequest(HttpServerExchange exchange) {
+    MyConfig config = MyConfig.load(); // Creates local reference
+    
+    // Use config throughout request processing
+    if (config.isEnabled()) {
+        // ... process request
+    }
+}
+```
+
+The `config` variable is a **local reference** to a configuration object. Here's what happens:
+
+1. **Cache Hit**: `MyConfig.load()` calls `Config.getJsonMapConfig(configName)` which returns a reference to the cached `Map<String, Object>`.
+2. **Object Construction**: A new `MyConfig` object is created, wrapping this Map reference.
+3. **Local Scope**: The `config` variable holds this reference for the duration of the request.
+
+### Scenario: Reload During Request Processing
+
+Consider this timeline:
+
+1. **T1**: Request A starts, calls `MyConfig.load()`, gets reference to Config Object v1
+2. **T2**: Admin calls `/adm/config-reload`, cache is cleared
+3. **T3**: Request B starts, calls `MyConfig.load()`, triggers reload, gets reference to Config Object v2
+4. **T4**: Request A continues processing with Config Object v1
+5. **T5**: Request A completes successfully with Config Object v1
+
+**Key Points**:
+
+- **Request A** maintains its reference to the original config object throughout its lifecycle
+- **Request B** gets a new config object with reloaded values
+- Both requests process correctly with **consistent** configuration for their entire duration
+- No race conditions or inconsistent state within a single request
+
+### Why This Design is Safe
+
+#### 1. **Immutable Config Objects**
+Configuration objects are effectively immutable once constructed:
+```java
+private MyConfig(String configName) {
+    mappedConfig = Config.getInstance().getJsonMapConfig(configName);
+    setConfigData(); // Parses and sets final fields
+}
+```
+Fields are set during construction and never modified afterward.
+
+#### 2. **Local Variable Isolation**
+Each request has its own local `config` variable:
+- The reference is stored on the thread's stack
+- Even if the cache is cleared, the reference remains valid
+- The underlying Map object continues to exist until no references remain (garbage collection)
+
+#### 3. **Per-Request Consistency**
+This design ensures that each request has a **consistent view** of configuration from start to finish:
+- No mid-request configuration changes
+- Predictable behavior throughout request processing
+- Easier debugging and reasoning about request flow
+
+#### 4. **Graceful Transition**
+The architecture enables zero-downtime config updates:
+- **In-flight requests**: Complete with the config they started with
+- **New requests**: Use the updated configuration
+- **No interruption**: No requests fail due to config reload
+
+### Edge Cases and Considerations
+
+#### Long-Running Requests
+For requests that take significant time to process (e.g., minutes):
+- The request will complete with the configuration it started with
+- If config is reloaded during processing, the request continues with "old" config
+- **This is correct behavior** - we want consistent config per request
+
+#### High-Concurrency Scenarios
+During a config reload under heavy load:
+- Multiple threads may simultaneously detect cache miss
+- Double-checked locking ensures only one thread loads from disk
+- All threads eventually get the same new config instance
+- No duplicate file I/O or parsing overhead
+
+### Memory Implications
+
+**Question**: If old config objects are still referenced by in-flight requests, do we have memory leaks?
+
+**Answer**: No, this is handled by Java's garbage collection:
+
+1. Request A holds reference to Config Object v1
+2. Cache is cleared and reloaded with Config Object v2
+3. Request A completes and goes out of scope
+4. Config Object v1 has no more references
+5. Garbage collector reclaims Config Object v1
+
+The memory overhead is minimal and temporary, lasting only as long as the longest in-flight request.
+
+### Best Practices
+
+To ensure optimal behavior with hot reload:
+
+1. **Always Load Fresh**: Call `MyConfig.load()` at the start of `handleRequest`, not in constructor
+   ```java
+   // ✅ GOOD
+   public void handleRequest(...) {
+       MyConfig config = MyConfig.load();
+   }
+   
+   // ❌ BAD
+   private static MyConfig config = MyConfig.load();
+   ```
+
+2. **Use Local Variables**: Store config in local variables, not instance fields
+   ```java
+   // ✅ GOOD
+   MyConfig config = MyConfig.load();
+   
+   // ❌ BAD
+   this.config = MyConfig.load();
+   ```
+
+3. **Don't Cache in Handlers**: Let the `Config` class handle caching
+   ```java
+   // ✅ GOOD - Load on each request
+   public void handleRequest(...) {
+       MyConfig config = MyConfig.load();
+   }
+   
+   // ❌ BAD - Caching in handler
+   private MyConfig cachedConfig;
+   public void handleRequest(...) {
+       if (cachedConfig == null) cachedConfig = MyConfig.load();
+   }
+   ```
+
+### Summary
+
+The centralized cache design ensures:
+- **Thread Safety**: Multiple threads can safely reload and access config
+- **Request Consistency**: Each request has a stable config view from start to finish  
+- **Zero Downtime**: Config updates don't interrupt in-flight requests
+- **Performance**: HashMap lookups are extremely fast (O(1))
+- **Simplicity**: No complex synchronization needed in handlers
+
 ## Benefits
 
 1. **Performance**: Only one disk read per reload cycle. Subsequent accesses are Hash Map lookups.
