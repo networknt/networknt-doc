@@ -118,7 +118,120 @@ public static ClientConfig get() {
     return instance;
 }
 
-### 5. Thread Safety
+
+### 5. Lazy Rebuild on Config Change
+
+Some handlers (like `LightProxyHandler`) maintain expensive internal objects that depend on the configuration (e.g., `LoadBalancingProxyClient`, `ProxyHandler`). Recreating these on every request is not feasible due to performance. However, they must still react to configuration changes.
+
+For these cases, we use a **Lazy Rebuild** pattern:
+
+1.  **Volatile Config Reference**: The handler maintains a `volatile` reference to its configuration object.
+2.  **Check on Request**: At the start of `handleRequest`, it checks if the cached config object is the same as the one returned by `Config.load()`.
+3.  **Rebuild if Changed**: If the reference has changed (identity check), it synchronizes and rebuilds the internal components.
+
+**Example Implementation (`LightProxyHandler`):**
+
+```java
+public class LightProxyHandler implements HttpHandler {
+    private volatile ProxyConfig config;
+    private volatile ProxyHandler proxyHandler;
+
+    public LightProxyHandler() {
+        this.config = ProxyConfig.load();
+        buildProxy(); // Initial build
+    }
+
+    private void buildProxy() {
+        // Expensive object creation based on config
+        this.proxyHandler = ProxyHandler.builder()
+                .setProxyClient(new LoadBalancingProxyClient()...)
+                .build();
+    }
+
+    @Override
+    public void handleRequest(HttpServerExchange exchange) throws Exception {
+        ProxyConfig newConfig = ProxyConfig.load();
+        // Identity check: ultra-fast
+        if (newConfig != config) {
+            synchronized (this) {
+                newConfig = ProxyConfig.load(); // Double-check
+                if (newConfig != config) {
+                    config = newConfig;
+                    buildProxy(); // Rebuild internal components
+                }
+            }
+        }
+        // Use the (potentially new) proxyHandler
+        proxyHandler.handleRequest(exchange);
+    }
+}
+```
+
+This pattern ensures safe updates without the overhead of rebuilding on every request, and without requiring a manual `reload()` method.
+
+### 6. Config Class Implementation Pattern (Singleton with Caching)
+
+
+For configuration classes that are frequently accessed (per request), instantiating a new object each time can be expensive. We recommend implementing a Singleton pattern that caches the configuration object and only invalidates it when the underlying configuration map changes.
+
+**Example Implementation (`ApiKeyConfig`):**
+
+```java
+public class ApiKeyConfig {
+    private static final String CONFIG_NAME = "apikey";
+    // Cache the instance
+    private static ApiKeyConfig instance;
+    private final Map<String, Object> mappedConfig;
+    
+    // Private constructor to force use of load()
+    private ApiKeyConfig(String configName) {
+        mappedConfig = Config.getInstance().getJsonMapConfig(configName);
+        setConfigData();
+    }
+
+    public static ApiKeyConfig load() {
+        return load(CONFIG_NAME);
+    }
+
+    public static ApiKeyConfig load(String configName) {
+        // optimistically check if we have a valid cached instance
+        Map<String, Object> mappedConfig = Config.getInstance().getJsonMapConfig(configName);
+        if (instance != null && instance.getMappedConfig() == mappedConfig) {
+            return instance;
+        }
+        
+        // Double-checked locking for thread safety
+        synchronized (ApiKeyConfig.class) {
+            mappedConfig = Config.getInstance().getJsonMapConfig(configName);
+            if (instance != null && instance.getMappedConfig() == mappedConfig) {
+                return instance;
+            }
+            instance = new ApiKeyConfig(configName);
+            // Register the module with the configuration. masking the apiKey property.
+            // As apiKeys are in the config file, we need to mask them.
+            List<String> masks = new ArrayList<>();
+            // if hashEnabled, there is no need to mask in the first place.
+            if(!instance.hashEnabled) {
+                masks.add("apiKey");
+            }
+            ModuleRegistry.registerModule(configName, ApiKeyConfig.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(configName), masks);
+
+            return instance;
+        }
+    }
+    
+    public Map<String, Object> getMappedConfig() {
+        return mappedConfig;
+    }
+}
+```
+
+This pattern ensures that:
+1. **Performance**: Applications use the cached `instance` for the majority of requests (fast reference check).
+2. **Freshness**: If `Config.getInstance().getJsonMapConfig(name)` returns a new Map object (due to a reload), the equality check fails, and a new `ApiKeyConfig` is created.
+3. **Consistency**: The `handleRequest` method still calls `ApiKeyConfig.load()`, but receives the singleton instance transparently.
+
+### 6. Thread Safety
 
 The `Config` class handles concurrent access using the **Double-Checked Locking** pattern to ensure that the configuration file is loaded **exactly once**, even if multiple threads request it simultaneously immediately after the cache is cleared.
 
