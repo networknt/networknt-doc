@@ -6,6 +6,7 @@
   - [MCP Rotuer](./design/mcp-router.md)
   - [Config Reload](./design/config-reload.md)
   - [Module Registry](./design/module-registry.md)
+  - [HttpClient Retry](./design/httpclient-retry.md)
 - [Cross-Cutting-Concerns](./cross-cutting-concerns.md)
   - [Light-4j](./concern/light-4j.md)
     - [Http Handler](./concern/http-handler.md)
