@@ -21,6 +21,8 @@
       - [Security Handler](./concern/middleware/security-handler.md)
       - [Unified Security](./concern/middleware/unified-security.md)
       - [Sidecar Handler](./concern/middleware/sidecar-handler.md)
+      - [SSE Handler](./concern/middleware/sse-handler.md)
+      - [MCP router](./concern/middleware/mcp-router.md)
     - [Interceptor](./concern/interceptor.md)
       - [Request Transformer](./concern/interceptor/request-transformer.md)
       - [Response Transformer](./concern/interceptor/response-transformer.md)
