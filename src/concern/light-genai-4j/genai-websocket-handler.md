@@ -77,8 +77,20 @@ The implementation to use can be configured via `service.yml` (using Light-4J's 
 
 Example `service.yml` for In-Memory:
 ```yaml
-- com.networknt.genai.handler.ChatSessionRepository:
-  - com.networknt.genai.handler.InMemoryChatSessionRepository
 - com.networknt.genai.handler.ChatHistoryRepository:
   - com.networknt.genai.handler.InMemoryChatHistoryRepository
 ```
+
+## Streaming Behavior
+
+The handler implements a buffering mechanism for the streaming response from the LLM to improve client-side rendering.
+
+### Response Buffering
+LLM providers usually stream tokens (words or partial words) as they are generated. If these tokens are sent to the client immediately as individual WebSocket frames, simplistic clients that print each frame on a new line will display a fragmented "word-per-line" output.
+
+To resolve this, the `GenAiWebSocketHandler` buffers incoming tokens and only flushes them to the client when:
+1.  A newline character (`\n`) is detected in the buffer.
+2.  The stream from the LLM completes.
+
+This ensures that the client receives complete lines or paragraphs, resulting in a cleaner user experience.
+
