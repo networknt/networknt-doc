@@ -79,3 +79,8 @@
     - [Gemini Client](./concern/light-genai-4j/gemini-client.md)
     - [Bedrock Client](./concern/light-genai-4j/bedrock-client.md)
     - [Genai WebSocket Handler](./concern/light-genai-4j/genai-websocket-handler.md)
+- [Example](./example.md)
+  - [Light-websocket-4j](./example/light-websocket-4j.md) 
+    - [llmchat-server](./example/light-websocket-4j/llmchat-server.md)
+    - [llmchat-gateway](./example/light-websocket-4j/llmchat-gateway.md)
+

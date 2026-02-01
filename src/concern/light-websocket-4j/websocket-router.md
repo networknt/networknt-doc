@@ -8,10 +8,13 @@ When a request is identified as a WebSocket request targeted for routing, this h
 
 The configuration for the WebSocket Router Handler is located in `websocket-router.yml`.
 
-| Field | Type | Description | Default |
-|Str|Str|Str|Str|
-| enabled | boolean | Enable or disable the WebSocket Router Handler. | true |
-| pathPrefixService | Map<String, String> | A map defining path prefixes and their corresponding service IDs. If a request path starts with a prefix, it is routed to the associated service ID. | empty |
+```
+# Light websocket router configuration
+# Enable WebSocket Router Handler
+enabled: ${websocket-router.enabled:true}
+# Map of path prefix to serviceId for routing purposes when service_id header is missing.
+pathPrefixService: ${websocket-router.pathPrefixService:}
+```
 
 ### Example Configuration
 
@@ -33,13 +36,13 @@ Add the fully qualified class name to the `handlers` list in `handler.yml`:
 
 ```yaml
 handlers:
-  - com.networknt.websocket.router.WebSocketRouterHandler
+  - com.networknt.websocket.router.WebSocketRouterHandler@router
   # ... other handlers
 ```
 
 ### 2. Configure the Chain
 
-Add the handler alias (usually `WebSocketRouterHandler` or a custom alias if defined) to the `default` chain or specific path chains.
+Add the handler alias `router` or a custom alias if defined to the `default` chain or specific path chains.
 
 ```yaml
 chains:
@@ -48,7 +51,6 @@ chains:
     - metrics
     - traceability
     - correlation
-    - WebSocketRouterHandler
     - header
     - router
 ```

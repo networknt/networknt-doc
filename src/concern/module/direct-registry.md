@@ -4,7 +4,7 @@ If you don't have Consul or the Light Portal deployed for service registry and d
 
 There are two main ways to define the mapping between a `serviceId` and its corresponding hosts:
 1.  **service.yml**: The original method, defined as part of the `URLImpl` parameters.
-2.  **direct-registry.yml**: The recommended method for dynamic environments like `http-sidecar` or `light-gateway`.
+2.  **direct-registry.yml**: The recommended method for dynamic environments like `http-sidecar` or `light-gateway` and it supports configuration hot reload.
 
 ---
 
@@ -49,6 +49,8 @@ To support [multi-tenancy](/design/multi-tenancy/), you can pass tags (e.g., env
       parameters:
         com.networknt.portal.command-1.0.0: https://localhost:8440?environment=0000,https://localhost:8441?environment=0001
 ```
+
+**Note:** This is the legacy approach and it is not recommended as hot reload is not supported when serviceId to hosts mapping is defined this way. 
 
 ---
 
