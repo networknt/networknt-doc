@@ -73,6 +73,7 @@
     - [WebSocket Client](./concern/light-websocket-4j/websocket-client.md)
     - [WebSocket Router](./concern/light-websocket-4j/websocket-router.md)
     - [WebSocket Handler](./concern/light-websocket-4j/websocket-handler.md)
+    - [WebSocket Rendezvous](./concern/light-websocket-4j/websocket-rendezvous.md)
   - [Light-genai-4j](./concern/light-genai-4j.md)
     - [Ollama Client](./concern/light-genai-4j/ollama-client.md)
     - [OpenAI Client](./concern/light-genai-4j/openai-client.md)
