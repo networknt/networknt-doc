@@ -1,20 +1,20 @@
 # Portal Registry
 
-The `portal-registry` module is a decentralized service registry and discovery implementation designed to replace external tools like Consul or Etcd. It connects directly to the `light-controller`, which acts as the centralized control panel for the light-portal ecosystem.
+The `portal-registry` module enables light-4j services to self-register with a centralized Light Portal controller (light-controller) instead of using local agents like Consul. It addresses the issues of resource utilization, long polling inefficiencies, and complex setup associated with Consul.
 
-### Why Portal Registry?
+## Key Features
 
-While Consul is a popular choice for service discovery, `portal-registry` was developed to address several pain points:
-1.  **Resource Efficiency**: Eliminates the need for local Consul agents on every node, reducing infrastructure overhead.
-2.  **WebSocket-Based Updates**: Unlike Consul's long-polling (blocking queries) for discovery updates, `portal-registry` uses WebSockets. This significantly reduces thread utilization in cloud environments.
-3.  **Simpler Procurement**: Provides an out-of-the-box solution within the `light-platform`, avoiding lengthy enterprise software approval cycles often required for third-party tools.
+1.  **Centralized Registration**: Services register directly with the controller cluster.
+2.  **WebSocket Discovery**: Instead of HTTP blocking queries/long polling, the client opens a WebSocket connection to the controller to receive real-time updates about service instances. This significantly reduces thread usage and network overhead.
+3.  **No Local Agent**: Eliminates the need for a sidecar or node-level agent.
 
-### Implementation Guide
+## Configuration
 
-To use the portal registry in your `light-4j` service, follow these steps:
+To switch from Consul to Portal Registry, you need to update `pom.xml`, `service.yml`, and add `portal-registry.yml`.
 
-#### 1. Dependency Management
-Add the following dependency to your `pom.xml`:
+### 1. `pom.xml`
+
+Replace `consul` dependency with `portal-registry`.
 
 ```xml
 <dependency>
@@ -24,69 +24,74 @@ Add the following dependency to your `pom.xml`:
 </dependency>
 ```
 
-#### 2. Enable Registry in server.yml
-Ensure that registry support is enabled in your `server.yml` or via `values.yml`:
+### 2. `service.yml`
 
-```yaml
-enableRegistry: ${server.enableRegistry:true}
-```
-
-#### 3. Service Configuration (service.yml)
-Update your `service.yml` to use `PortalRegistry` as the registry implementation. Note the use of the `light` protocol in the URL configuration.
+Configure the `Registry` singleton to use `PortalRegistry`.
 
 ```yaml
 singletons:
-- com.networknt.registry.URL:
-  - com.networknt.registry.URLImpl:
-      protocol: light
-      host: localhost
-      port: 8080
-      path: portal
-      parameters:
-        registryRetryPeriod: '30000'
-- com.networknt.portal.registry.client.PortalRegistryClient:
-  - com.networknt.portal.registry.client.PortalRegistryClientImpl
-- com.networknt.registry.Registry:
-  - com.networknt.portal.registry.PortalRegistry
-- com.networknt.balance.LoadBalance:
-  - com.networknt.balance.RoundRobinLoadBalance
-- com.networknt.cluster.Cluster:
-  - com.networknt.cluster.LightCluster
+  # Define the URL parameters for the registry connection
+  - com.networknt.registry.URL:
+      - com.networknt.registry.URLImpl:
+          protocol: light
+          host: localhost
+          port: 8080
+          path: portal
+          parameters:
+            registryRetryPeriod: '30000'
+  # The client implementation (connects to Portal)
+  - com.networknt.portal.registry.client.PortalRegistryClient:
+      - com.networknt.portal.registry.client.PortalRegistryClientImpl
+  # The Registry interface implementation
+  - com.networknt.registry.Registry:
+      - com.networknt.portal.registry.PortalRegistry
 ```
 
-#### 4. Module Configuration (portal-registry.yml)
-Create or update the `portal-registry.yml` file to configure connectivity to the controller.
+### 3. `portal-registry.yml`
+
+This module has its own configuration file.
+
+| Property | Description | Default |
+| :--- | :--- | :--- |
+| `portalUrl` | URL of the light-controller (e.g., `https://lightapi.net` or `https://light-controller`). | `https://lightapi.net` |
+| `portalToken` | Bootstrap token for accessing the controller. | - |
+| `checkInterval` | Interval for health checks (e.g., `10s`). | `10000` (ms) |
+| `deregisterAfter` | Time to wait after failure before deregistering. | `120000` (ms) |
+| `httpCheck` | Enable HTTP health check (Controller polls Service). | `false` |
+| `ttlCheck` | Enable TTL heartbeat (Service calls Controller). | `true` |
+| `healthPath` | Path for HTTP health check (e.g., `/health/`). | `/health/` |
+
+**Example `portal-registry.yml`:**
 
 ```yaml
----
-# Portal URL for accessing controller API. 
-portalUrl: ${portalRegistry.portalUrl:https://localhost:8443}
-
-# JWT token for authorized access to the light-controller.
-portalToken: ${portalRegistry.portalToken:}
-
-# Max requests before resetting connection (HTTP/2 optimization).
-maxReqPerConn: ${portalRegistry.maxReqPerConn:1000000}
-
-# Timing for critical health state and de-registration.
-deregisterAfter: ${portalRegistry.deregisterAfter:120000}
-checkInterval: ${portalRegistry.checkInterval:10000}
-
-# Health Check Mechanisms
-httpCheck: ${portalRegistry.httpCheck:false}
-ttlCheck: ${portalRegistry.ttlCheck:true}
-healthPath: ${portalRegistry.healthPath:/health/}
+portalUrl: https://light-controller-test.networknt.com
+portalToken: ${portalRegistry.portalToken}
+ttlCheck: true
 ```
 
-### Operational Workflow
+### 4. `server.yml`
 
-#### Registry (Service-Side)
-When a service starts, it registers itself with the `light-controller`. During heartbeats (TTL) or polling (HTTP), the controller maintains the service status. When the service shuts down gracefully, it unregisters itself to remove stale nodes immediately.
+Ensure registry is enabled.
 
-#### Discovery (Consumer-Side)
-1.  **Initial Query**: On the first request to a downstream service, the consumer queries the `light-controller` for available nodes based on `serviceId` and environment tags.
-2.  **Streaming Updates**: After the initial lookup, the `portal-registry` opens a WebSocket connection to the controller. Any changes to the downstream service instances (new nodes, failures, or de-registrations) are pushed to the consumer in real-time to update its local cache.
+```yaml
+enableRegistry: true
+serviceId: com.networknt.petstore-1.0.0
+```
 
-### Auto-Registration & Security
+## How It Works
 
-The module automatically registers itself with the `ModuleRegistry` during configuration loading. This allows you to inspect the registry status and configuration via the [Server Info](/concern/admin/server-info.md) endpoint. Sensitive tokens like `portalToken` are automatically masked in these logs/endpoints.
+### Registration (Service Startup)
+
+When a service starts, `PortalRegistry` sends a registration request to the `portalUrl`. It includes the simplified service metadata (host, port, serviceId, environment).
+Depending on configuration:
+-   **TTL Check**: The service starts a background thread (`PortalRegistryHeartbeatManager`) to send periodic heartbeats to the controller.
+-   **HTTP Check**: The controller is expected to poll the service's `healthPath`.
+
+### Discovery (Client Side)
+
+When a client (like `light-router`) needs to find a service:
+1.  **Initial Lookup**: It queries the controller for the current list of healthy instances for a given `serviceId` and `tag`.
+2.  **Subscription**: It establishes a WebSocket connection to `wss://{portalUrl}/ws`.
+3.  **Real-time Updates**: When service instances change (up/down/scaling), the controller pushes the new list to the client via the WebSocket. The client updates its local cache immediately.
+
+This WebSocket approach is much more efficient than Consul's blocking query, especially when subscribing to many services, as it multiplexes updates over a single connection.

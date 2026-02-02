@@ -11,8 +11,7 @@ The configuration for the MCP Router is defined in `mcp-router.yml` (or `mcp-rou
 | Property | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `enabled` | boolean | `true` | Enable or disable the MCP Router Handler. |
-| `ssePath` | string | `/mcp/sse` | The endpoint path for establishing the MCP Server-Sent Events (SSE) connection. |
-| `messagePath` | string | `/mcp/message` | The endpoint path for sending MCP JSON-RPC messages (POST). |
+| `path` | string | `/mcp` | The unified endpoint path for both connection establishment (SSE via GET) and JSON-RPC messages (POST). |
 | `tools` | list | `null` | A list of tools exposed by this router. Each tool maps to a downstream HTTP service. |
 
 ### Configuration Example (mcp-router.yml)
@@ -21,11 +20,8 @@ The configuration for the MCP Router is defined in `mcp-router.yml` (or `mcp-rou
 # Enable MCP Router Handler
 enabled: true
 
-# Path for MCP Server-Sent Events (SSE) endpoint
-ssePath: /mcp/sse
-
-# Path for MCP JSON-RPC message endpoint
-messagePath: /mcp/message
+# Path for MCP endpoint (Streamable HTTP)
+path: /mcp
 
 # Define tools exposed by this router
 tools:
@@ -39,10 +35,10 @@ tools:
 
 ## Architecture
 
-The MCP Router implements the MCP HTTP transport specification:
+The MCP Router implements the MCP HTTP transport specification using a **Single Path** architecture:
 
-1.  **Connection**: Clients connect to the `ssePath` (default `/mcp/sse`) via GET to establish an SSE session. The server responds with an endpoint event containing the URI for message submission.
-2.  **Messaging**: Clients send JSON-RPC 2.0 messages to the `messagePath` (default `/mcp/message`) via POST.
+1.  **Connection**: Clients connect to the configured `path` (default `/mcp`) via **GET** to establish an SSE session. The server generates a unique session ID and responds with an `endpoint` event containing the URI for message submission (e.g., `/mcp?sessionId=uuid`).
+2.  **Messaging**: Clients send JSON-RPC 2.0 messages to the same `path` (default `/mcp`) via **POST**. The session context is maintained via the `sessionId` query parameter or header.
 3.  **Tool Execution**: The router translates `tools/call` requests into HTTP requests to the configured downstream services (`host` + `path`).
 
 ## Supported Methods
@@ -56,17 +52,45 @@ The router supports the following MCP JSON-RPC methods:
 
 ## Usage
 
-Register the `McpHandler` in your `handler.yml` chain. Ensure the `ssePath` and `messagePath` are accessible.
+Register the `McpHandler` in your `handler.yml` chain.
 
-Example 
+Example:
 ```yaml
 paths:
-  - path: '/mcp/sse'
+  - path: '/mcp'
     method: 'GET'
     exec:
       - mcp-router
-  - path: '/mcp/message'
+  - path: '/mcp'
     method: 'POST'
     exec:
       - mcp-router
 ```
+
+## Verification with verify_mcp.py
+
+To assist with testing and verification, a Python script `verify_mcp.py` is available in the `light-gateway` root directory (and potentially other project roots). This script simulates an MCP client to ensure the router is correctly configured and routing requests.
+
+### Prerequisite
+
+Install the required Python packages:
+
+```bash
+pip install requests sseclient-py
+```
+
+### Running the Script
+
+Run the script against your running gateway instance (default `https://localhost:8443`):
+
+```bash
+python3 verify_mcp.py
+```
+
+### What it does
+
+1.  **Connects to SSE**: Initiates a GET request to `/mcp` and listens for server sent events. It confirms receipt of the `endpoint` event.
+2.  **Initializes**: Sends a POST request with the `initialize` JSON-RPC method to verify protocol negotiation.
+3.  **Lists Tools**: Sends a `tools/list` request to verify that configured tools are being correctly exposed by the router.
+
+If successful, you will see output confirming the SSE connection, the endpoint event, and the JSON responses for initialization and tool listing.
