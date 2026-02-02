@@ -65,4 +65,29 @@ chains:
 4.  **Routing**: Upon successful connection (`onConnect`), it looks up the downstream service URL using the `Cluster` and `Service` discovery mechanism based on the `service_id`.
 5.  **Proxying**: It establishes a WebSocket connection to the downstream service and pipes messages between the client and the backend.
 
-If the request is not matched as a WebSocket routing request, the handler simply delegates to the next handler in the chain, allowing standard HTTP requests to proceed to other endpoints.
+
+## Channel Management
+
+The WebSocket Router uses a concept of "Channels" to manage client sessions.
+
+1.  **Channel Group ID**:
+    - The router expects a unique identifier for each client connection, typically passed in the `x-group-id` header (internally `WsAttributes.CHANNEL_GROUP_ID`).
+    - If this header is missing (e.g., standard browser connections), the router **automatically generates a unique UUID** for the session.
+
+2.  **Connection Mapping**:
+    - Each unique Channel Group ID corresponds to a distinct WebSocket connection to the downstream service.
+    - If a client connects with a generated UUID, a **new** connection is established to the backend service for that specific session.
+    - Messages are proxied exclusively between the client's channel and its corresponding downstream connection.
+
+
+ This ensures that multiple browser tabs or distinct clients are isolated, each communicating with the backend over its own dedicated WebSocket link.
+
+## Architecture: Router vs. Proxy
+
+You might observe that the `WebSocketRouterHandler` functions primarily as a **Reverse Proxy**: it terminates the client connection and establishes a separate connection to the backend service.
+
+It is named a "Router" because of its role in the system architecture:
+1.  **Multiplexing**: It can route different paths (e.g., `/chat`, `/notification`) to different backend services on the same gateway port.
+2.  **Service Discovery**: It dynamically resolves the backend URL using the `service_id` and the configured Registry/Cluster (e.g., Consul, Kubernetes), rather than proxying to a static IP address.
+
+Thus, while the *mechanism* is proxying, the *function* is dynamic routing and load balancing of WebSocket traffic.
