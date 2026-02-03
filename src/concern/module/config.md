@@ -82,6 +82,25 @@ serviceId: ${SERVER_SERVICEID:com.networknt.petstore-1.0.0}
 SERVER_SERVICEID: com.networknt.petstore-2.0.0
 ```
 
+### Injecting Environment Variables into values.yml
+
+You can also inject environment variables directly into `values.yml`. This allows for a two-stage injection where environment variables populate `values.yml`, and `values.yml` populates other configuration files. This is particularly useful when using secret management tools (like HashiCorp Vault) that populate environment variables, allowing you to manage sensitive data without committing it to the code repository.
+
+`values.yml`:
+```yaml
+router.hostWhitelist:
+  - 192.168.0.*
+  - localhost
+  - ${DOCKER_HOST_IP}
+```
+
+If the environment variable `DOCKER_HOST_IP` is set to `192.168.5.10`, the final loaded configuration for `router.hostWhitelist` will include `192.168.5.10`.
+
+**Benefits:**
+*   **Security**: Sensitive information (IPs, credentials) remains in environment variables/secrets engine.
+*   **Flexibility**: You can use the same `values.yml` structure across environments, populated by environment-specific variables.
+
+
 ## Handling Secrets
 
 Release 1.6.0+ supports transparent decryption of sensitive values.
