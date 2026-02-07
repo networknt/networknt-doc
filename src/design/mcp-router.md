@@ -62,6 +62,14 @@ MCP uses JSON-RPC 2.0. We will need a simple parser that:
 #### Step 4: Governance (The "Agentic" Layer)
 Add a "Critique" or "Guardrail" check. Since this is at the gateway, we can inspect the tool output. If the LLM requested sensitive data, the Gateway can mask it before the agent sees it.
 
+#### Step 5: MCP Proxy Support
+The MCP Router supports acting as a proxy for backend MCP servers.
+*   **Configuration:** Tools can be configured with a `protocol` field (`http` or `mcp`).
+*   **Behavior:**
+    *   `http` (default): Transforming MCP tool calls to REST requests (JSON translation).
+    *   `mcp`: Forwarding JSON-RPC requests directly to a backend MCP server via HTTP POST.
+*   **Use Case:** This allows integrating existing MCP servers (e.g., Node.js, Python) into the light-4j gateway without rewriting them implementation.
+
 ---
 
 ### 4. Potential Challenges to Watch
