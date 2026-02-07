@@ -11,6 +11,9 @@ The `Http2Client` module provided by `light-4j` is a high-performance, asynchron
 -   **Service Discovery**: Integrates with light-4j service discovery to resolve service IDs to URLs.
 -   **TLS/SSL Support**: Comprehensive TLS configuration including two-way SSL.
 
+> [!IMPORTANT]
+> **Migration Notice**: The `borrowConnection`/`returnConnection` methods are deprecated. Migrate to the new `borrow()`/`restore()` SimplePool API for better metrics, health checks, and pool management. See the [SimplePool Migration Guide](simplepool-migration.md) for details.
+
 ## Configuration
 
 The client is configured via `client.yml`.
@@ -39,6 +42,9 @@ Configures request behavior and connection pooling.
 | `enableHttp2` | Enable HTTP/2 support. | `true` |
 | `connectionPoolSize` | Max connections per host in the pool. | `1000` |
 | `maxReqPerConn` | Max requests per connection before closing. | `1000000` |
+| `poolMetricsEnabled` | Enable connection pool metrics. | `false` |
+| `healthCheckEnabled` | Enable background connection health checks. | `true` |
+| `healthCheckIntervalMs` | Health check interval in milliseconds. | `30000` |
 
 #### OAuth (`oauth`)
 
@@ -56,6 +62,8 @@ request:
   timeout: 3000
   enableHttp2: true
   connectionPoolSize: 100
+  poolMetricsEnabled: true
+  healthCheckEnabled: true
 oauth:
   token:
     server_url: https://localhost:6882
@@ -76,11 +84,12 @@ import com.networknt.client.Http2Client;
 Http2Client client = Http2Client.getInstance();
 ```
 
-### Making a Request
+### Making a Request (Recommended - SimplePool)
 
-You can use `borrowConnection` to get a connection and then send a request.
+Use `borrow()` to get a connection token and `restore()` to return it.
 
 ```java
+import com.networknt.client.simplepool.SimpleConnectionHolder.ConnectionToken;
 import io.undertow.client.ClientConnection;
 import io.undertow.client.ClientRequest;
 import io.undertow.util.Methods;
@@ -90,15 +99,17 @@ import java.util.concurrent.atomic.AtomicReference;
 
 // ...
 
+ConnectionToken token = null;
 try {
-    // Borrow a connection
-    ClientConnection connection = client.borrowConnection(
+    // Borrow a connection token
+    token = client.borrow(
         new URI("https://example.com"),
         Http2Client.WORKER,
-        Http2Client.SSL,
         Http2Client.BUFFER_POOL,
-        OptionMap.create(UndertowOptions.ENABLE_HTTP2, true)
-    ).get();
+        true  // HTTP/2 enabled
+    );
+    
+    ClientConnection connection = token.connection().getRawConnection();
 
     // Create the request
     ClientRequest request = new ClientRequest().setMethod(Methods.GET).setPath("/api/v1/data");
@@ -122,11 +133,13 @@ try {
     System.out.println("Status: " + statusCode);
     System.out.println("Body: " + body);
 
-    // Return the connection to the pool
-    client.returnConnection(connection);
-
 } catch (Exception e) {
     e.printStackTrace();
+} finally {
+    // Always restore the token
+    if (token != null) {
+        client.restore(token);
+    }
 }
 ```
 
@@ -151,9 +164,44 @@ For service-to-service calls, you often need to propagate headers like correlati
 client.propagateHeaders(request, exchange);
 ```
 
+### Pool Warm-Up
+
+Pre-establish connections to reduce first-request latency:
+
+```java
+// Warm up connections at application startup
+client.warmUpPool(URI.create("https://api.example.com:443"));
+```
+
+### Pool Metrics
+
+Access connection pool statistics:
+
+```java
+SimplePoolMetrics metrics = client.getPoolMetrics();
+if (metrics != null) {
+    logger.info(metrics.getSummary());
+}
+```
+
+### Shutdown
+
+Stop background threads during application shutdown:
+
+```java
+client.shutdown();
+```
+
 ## Best Practices
 
-1.  **Release Connections**: Always return connections to the pool using `client.returnConnection(connection)` in a `finally` block or use `try-with-resources` concepts if applicable, to avoid leaking connections.
-2.  **Timeouts**: Always set timeouts for your requests to prevent indefinite hanging.
-3.  **HTTP/2**: Enable HTTP/2 for better performance (multiplexing) if your infrastructure supports it.
-4.  **Singleton**: Use the singleton `Http2Client.getInstance()` rather than creating new instances.
+1.  **Use SimplePool API**: Prefer `borrow()`/`restore()` over deprecated `borrowConnection()`/`returnConnection()`.
+2.  **Release Connections**: Always restore tokens in a `finally` block to avoid leaking connections.
+3.  **Timeouts**: Always set timeouts for your requests to prevent indefinite hanging.
+4.  **HTTP/2**: Enable HTTP/2 for better performance (multiplexing) if your infrastructure supports it.
+5.  **Singleton**: Use the singleton `Http2Client.getInstance()` rather than creating new instances.
+6.  **Shutdown**: Call `client.shutdown()` during application shutdown to stop health check threads.
+
+## Related Documentation
+
+- [SimplePool Migration Guide](simplepool-migration.md)
+- [SimplePool Design](../../design/client-simplepool.md)
