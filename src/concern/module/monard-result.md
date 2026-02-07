@@ -8,13 +8,13 @@ This approach promotes cleaner code by avoiding the use of exceptions for expect
 
 The module consists of three main parts:
 
-### 1. Result<T>
+### 1. Result
 An interface that represents the result of an operation. It can be either a `Success` or a `Failure`.
 
-### 2. Success<T>
+### 2. Success
 An implementation of `Result` that holds the successful value.
 
-### 3. Failure<T>
+### 3. Failure
 An implementation of `Result` that holds a `com.networknt.status.Status` object describing the error.
 
 ## Usage
