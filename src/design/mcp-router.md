@@ -1,4 +1,4 @@
-# MCP Rotuer
+# MCP Router
 
 Implementing an **MCP (Model Context Protocol) Router** inside **light-4j** gateway is a **visionary and highly strategic idea**. 
 

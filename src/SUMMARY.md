@@ -3,6 +3,8 @@
 - [Introduction](./introduction.md)
 - [Architecture](./architecture.md)
 - [Design](./design.md)
+  - [light-genai-4j](./design/light-genai-4j.md)
+    - [Memory Embedding](./design/light-genai-4j/memory-embeddeding.md)
   - [MCP Rotuer](./design/mcp-router.md)
   - [Config Reload](./design/config-reload.md)
   - [Module Registry](./design/module-registry.md)
