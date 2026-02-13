@@ -4,6 +4,8 @@
 
 This document outlines the design decisions for memory management, embedding models, and storage architecture for the light-genai-4j agent system.
 
+For agent skills and tool execution, see [Agent Skill Design](agent-skill.md).
+
 ## 1. Embedding Model Selection
 
 ### 1.1 Chosen Model: BGE-small-en-v1.5 (Quantized)
@@ -49,41 +51,60 @@ String document = conversationText; // No prefix needed
 
 ### 2.1 Schema Design
 
+The schema adopts a **scope-based memory model** (similar to [mem0](https://github.com/mem0ai/mem0)), organizing memory by lifetime and visibility rather than abstract types.
+
 ```sql
 -- Enable pgvector extension
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- Short-term memory (session context)
-CREATE TABLE short_term_memories (
+-- Session Memory (Short-term)
+-- Stores in-flight conversation context. Auto-expires via TTL.
+CREATE TABLE session_memories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID NOT NULL,
     agent_id UUID NOT NULL,
-    user_id UUID,
+    user_id UUID, -- NULL allowed for anonymous sessions or background system tasks
     content TEXT NOT NULL,
     embedding VECTOR(384),
     importance_score FLOAT DEFAULT 1.0,
     created_at TIMESTAMP DEFAULT NOW(),
-    expires_at TIMESTAMP DEFAULT NOW() + INTERVAL '1 hour',
-    metadata JSONB
+    expires_at TIMESTAMP DEFAULT NOW() + INTERVAL '1 hour', -- TTL
+    metadata JSONB -- Rich filtering (e.g., {"topic": "debug", "turn": 5})
 );
 
--- Long-term memory (persistent across sessions)
-CREATE TABLE long_term_memories (
+-- User Memory (Long-term)
+-- Stores persistent facts/preferences about a user. Manual or inferred.
+CREATE TABLE user_memories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     agent_id UUID NOT NULL,
-    user_id UUID,
-    content TEXT NOT NULL,
+    user_id UUID NOT NULL, -- Must be tied to a specific user
+    content TEXT NOT NULL, -- e.g., "User prefers Java over Python"
     embedding VECTOR(384),
-    memory_type VARCHAR(50), -- 'conversation', 'preference', 'fact'
+    memory_type VARCHAR(50), -- 'fact', 'preference', 'summary'
     importance_score FLOAT DEFAULT 1.0,
     access_count INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT NOW(),
     last_accessed TIMESTAMP DEFAULT NOW(),
+    metadata JSONB -- e.g., {"confidence": 0.9, "source": "conversation_123"}
+);
+
+-- Agent Memory (Private/Operational)
+-- Stores agent-specific learning, state, or persistent persona data.
+-- Scope: Private to the agent, typically across multiple users or sessions.
+CREATE TABLE agent_memories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    agent_id UUID NOT NULL,
+    -- NO user_id: This is agent-centric knowledge
+    content TEXT NOT NULL,
+    embedding VECTOR(384),
+    memory_type VARCHAR(50), -- 'learning', 'state', 'persona', 'scratchpad'
+    created_at TIMESTAMP DEFAULT NOW(),
     metadata JSONB
 );
 
--- Knowledge base documents
-CREATE TABLE knowledge_documents (
+-- Organizational Memory (Knowledge Base)
+-- Stores global, shared knowledge available to all agents/users.
+CREATE TABLE organizational_memories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     agent_id UUID NOT NULL,
     source VARCHAR(255), -- Document source/name
@@ -92,21 +113,30 @@ CREATE TABLE knowledge_documents (
     chunk_index INTEGER, -- For large documents split into chunks
     document_id UUID, -- Reference to parent document
     created_at TIMESTAMP DEFAULT NOW(),
-    metadata JSONB
+    metadata JSONB -- e.g., {"department": "HR", "version": "1.0"}
 );
 
--- Indexes for similarity search
-CREATE INDEX idx_short_term_embedding ON short_term_memories 
+-- Indexes for similarity search and metadata filtering
+CREATE INDEX idx_session_memory_embedding ON session_memories 
     USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX idx_session_metadata ON session_memories USING GIN (metadata);
 
-CREATE INDEX idx_long_term_embedding ON long_term_memories 
+CREATE INDEX idx_user_memory_embedding ON user_memories 
     USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX idx_user_metadata ON user_memories USING GIN (metadata);
 
-CREATE INDEX idx_knowledge_embedding ON knowledge_documents 
+CREATE INDEX idx_agent_memory_embedding ON agent_memories 
     USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX idx_agent_metadata ON agent_memories USING GIN (metadata);
+
+CREATE INDEX idx_org_memory_embedding ON organizational_memories 
+    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX idx_org_metadata ON organizational_memories USING GIN (metadata);
 ```
 
 ### 2.2 Memory Lifecycle
+
+The system follows a promotion strategy:
 
 ```
 User Input
@@ -116,30 +146,36 @@ User Input
 │  Query Embedding (with prefix)      │
 └─────────────────────────────────────┘
     │
-    ├──► Search Short-term Memory (high priority)
-    │     └── Recent context (last N turns)
+    ├──► Search Session Memory (Context)
+    │     └── Recent turns, immediate task context
     │
-    ├──► Search Long-term Memory (if needed)
-    │     └── Similar past interactions
+    ├──► Search User Memory (Personalization)
+    │     └── User preferences, past decisions, facts
     │
-    └──► Search Knowledge Base (if needed)
-          └── Relevant documents
+    ├──► Search Agent Memory (Self-Knowledge)
+    │     └── Agent persona, learned behaviors, operational state
+    │
+    └──► Search Organizational Memory (Knowledge)
+          └── Policies, docs, FAQs
     │
     ▼
 Consolidated Context → LLM
     │
     ▼
-Store Response ──────► Short-term Memory
+Store Response ──────► Session Memory
     │                         │
     │                         ▼
-    │              Scheduled for Summarization
+    │              (Optional: Extraction/Inference)
+    │              Run LLM to extract facts from conversation
     │                         │
-    │                         ▼
-    │              Important? ──► Long-term Memory
+    │          ┌──────────────┴──────────────┐
+    │          ▼                             ▼
+    │   User Memory                   Agent Memory
+    │   (User Facts)                  (Agent Learnings)
     │
     ▼
     (Session ends)
-    Short-term Expires
+    Session Memory Expires
 ```
 
 ### 2.3 Memory Retrieval Strategy
@@ -147,28 +183,31 @@ Store Response ──────► Short-term Memory
 ```java
 public class MemoryService {
     
-    public List<Memory> retrieveRelevantMemories(String query, UUID sessionId, UUID agentId) {
+    public List<Memory> retrieveRelevantMemories(String query, UUID sessionId, UUID userId, UUID agentId) {
         // 1. Embed the query with prefix
         String prefixedQuery = "Represent this sentence for searching relevant passages: " + query;
         Embedding queryEmbedding = embeddingModel.embed(prefixedQuery);
         
-        // 2. Search short-term memory (recent context)
-        List<Memory> shortTerm = searchShortTerm(queryEmbedding, sessionId, limit = 10);
+        // 2. Search Session Memory (Short-term context)
+        List<Memory> sessionContext = searchSession(queryEmbedding, sessionId, limit = 10);
         
-        // 3. Search long-term memory (if short-term insufficient)
-        List<Memory> longTerm = new ArrayList<>();
-        if (shortTerm.size() < 5) {
-            longTerm = searchLongTerm(queryEmbedding, agentId, limit = 5);
-        }
+        // 3. Search User Memory (Personalization)
+        List<Memory> userFacts = searchUser(queryEmbedding, userId, limit = 5);
         
-        // 4. Combine and rank
-        return combineAndRank(shortTerm, longTerm);
+        // 4. Search Agent Memory (Agent Self-Knowledge)
+        List<Memory> agentFacts = searchAgent(queryEmbedding, agentId, limit = 3);
+        
+        // 5. Search Organizational Memory (Knowledge Base)
+        List<Memory> orgKnowledge = searchOrg(queryEmbedding, agentId, limit = 5);
+        
+        // 6. Combine and Rerank
+        return combineAndRank(sessionContext, userFacts, agentFacts, orgKnowledge);
     }
     
-    private List<Memory> searchShortTerm(Embedding query, UUID sessionId, int limit) {
+    private List<Memory> searchSession(Embedding query, UUID sessionId, int limit) {
         String sql = """
             SELECT id, content, embedding <=> ? AS distance
-            FROM short_term_memories
+            FROM session_memories
             WHERE session_id = ? AND expires_at > NOW()
             ORDER BY embedding <=> ?
             LIMIT ?
@@ -178,131 +217,79 @@ public class MemoryService {
 }
 ```
 
-## 3. Skills Storage: SQL (Not Vector DB)
+## 3. Scaling & Advanced Patterns
 
-### 3.1 Why SQL for Skills?
+### 3.1 HNSW Indexing (Hierarchical Navigable Small World)
 
-Skills are **executable code units** (Java classes, scripts, or API calls) with structured definitions. They are **not** typically stored as markdown files, although their descriptions are text-based for LLM consumption.
+As the organizational memory grows (millions of records), standard `ivfflat` indexes may become too slow or inaccurate. We recommend using **HNSW** indexes for scalable vector search.
 
-**Do NOT store skills in vector DB** - you typically call skills by precise name or ID based on intent classification, not by semantic similarity.
+**Implementation in pgvector:**
+```sql
+-- Replace standard index with HNSW
+CREATE INDEX idx_org_memory_hnsw ON organizational_memories 
+    USING hnsw (embedding vector_cosine_ops) 
+    WITH (m = 16, ef_construction = 64);
+```
+- `m`: Max connections per layer (higher = better recall, larger index).
+- `ef_construction`: Size of dynamic list during build (higher = better quality, slower build).
 
-### 3.2 Skills Schema
+### 3.2 GraphRAG (Future Roadmap)
 
-This schema defines **what** the skill is, **how** to execute it, and **what parameters** it requires.
+To support multi-hop reasoning (e.g., "How does Project X relate to Policy Y?"), standard vector search is insufficient. **GraphRAG** combines vector search with knowledge graph traversal.
+
+**Relational Graph Schema (PostgreSQL):**
+Instead of a separate Graph DB, we can model entities and relationships directly in SQL.
 
 ```sql
--- Skill categories (hierarchical)
-CREATE TABLE skill_categories (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(255) NOT NULL,
-    parent_id UUID REFERENCES skill_categories(id),
+-- Extracted Entities (Nodes)
+CREATE TABLE entities (
+    id UUID PRIMARY KEY,
+    name VARCHAR(255),
+    type VARCHAR(50), -- 'Person', 'Project', 'Technology'
     description TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
+    embedding VECTOR(384) -- For hybrid search
 );
 
--- Skills definition
-CREATE TABLE skills (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(255) UNIQUE NOT NULL, -- The function name called by LLM
-    description TEXT,                  -- Natural language description for System Prompt
-    category_id UUID REFERENCES skill_categories(id),
-    
-    -- Implementation Details
-    implementation_type VARCHAR(50) NOT NULL, -- 'java', 'python', 'javascript', 'rest'
-    implementation_class VARCHAR(500),        -- Fully qualified Java class name (for 'java')
-    script_content TEXT,                      -- Actual source code (for 'python'/'javascript')
-    api_endpoint VARCHAR(1024),               -- URL (for 'rest')
-    api_method VARCHAR(10),                   -- HTTP Method (GET/POST)
-    
-    -- Metadata
-    version INTEGER DEFAULT 1,
-    is_enabled BOOLEAN DEFAULT true,
-    author VARCHAR(255),
-    tags TEXT[],
-    
-    -- For semantic discovery (optional)
-    description_embedding VECTOR(384),
-    
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+-- Relationships (Edges)
+CREATE TABLE relationships (
+    source_id UUID REFERENCES entities(id),
+    target_id UUID REFERENCES entities(id),
+    relation_type VARCHAR(50), -- 'CREATED_BY', 'DEPENDS_ON'
+    description TEXT,
+    weight FLOAT DEFAULT 1.0,
+    PRIMARY KEY (source_id, target_id, relation_type)
 );
 
--- Skill Parameters (Interface Definition)
--- Maps directly to arguments of the execute() method
-CREATE TABLE skill_parameters (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    skill_id UUID REFERENCES skills(id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,           -- Argument name (e.g., 'recipient_email')
-    param_type VARCHAR(50) NOT NULL,      -- 'string', 'number', 'boolean', 'object', 'array'
-    is_required BOOLEAN DEFAULT true,
-    default_value JSONB,
-    description TEXT,                     -- Instructions for LLM to extract value
-    validation_schema JSONB,              -- JSON Schema for complex validation (regex, enum, etc.)
-    order_index INTEGER DEFAULT 0,        -- Argument position index
-    UNIQUE(skill_id, name)
+-- Linking Text Chunks to Knowledge Graph
+CREATE TABLE memory_entities (
+    memory_id UUID REFERENCES organizational_memories(id),
+    entity_id UUID REFERENCES entities(id),
+    PRIMARY KEY (memory_id, entity_id)
 );
-
--- Agent-skill assignments
-CREATE TABLE agent_skills (
-    agent_id UUID REFERENCES agents(id),
-    skill_id UUID REFERENCES skills(id),
-    
-    -- Skill-specific configuration
-    config JSONB DEFAULT '{}',
-    
-    -- Execution settings
-    priority INTEGER DEFAULT 0,
-    timeout_seconds INTEGER DEFAULT 30,
-    max_retries INTEGER DEFAULT 3,
-    
-    -- Permissions
-    allowed_users UUID[], -- NULL = all users
-    
-    is_enabled BOOLEAN DEFAULT true,
-    created_at TIMESTAMP DEFAULT NOW(),
-    
-    PRIMARY KEY (agent_id, skill_id)
-);
-
--- Skill dependencies
-CREATE TABLE skill_dependencies (
-    skill_id UUID REFERENCES skills(id) ON DELETE CASCADE,
-    depends_on_skill_id UUID REFERENCES skills(id) ON DELETE CASCADE,
-    is_required BOOLEAN DEFAULT true,
-    PRIMARY KEY (skill_id, depends_on_skill_id)
-);
-
--- Indexes
-CREATE INDEX idx_skills_category ON skills(category_id);
-CREATE INDEX idx_skills_enabled ON skills(is_enabled);
-CREATE INDEX idx_skills_name ON skills(name);
-CREATE INDEX idx_agent_skills_agent ON agent_skills(agent_id);
 ```
 
-### 3.3 Skill Discovery (Semantic Search)
+### 3.3 Evaluation of Recursive Language Models (RLM)
 
-If you want natural language skill discovery (e.g., "how do I send email?" → find email skill):
+We evaluated [Recursive Language Models (RLM)](https://alexzhang13.github.io/blog/2025/rlm/) as a potential solution for large-scale memory.
 
-```sql
--- Search skills by semantic similarity
-SELECT s.id, s.name, s.description, 
-       s.description_embedding <=> ? AS similarity
-FROM skills s
-WHERE s.is_enabled = true
-ORDER BY s.description_embedding <=> ?
-LIMIT 5;
-```
+**Conclusion: NOT ADOPTED as Storage Architecture.**
+
+RLM is an *inference strategy* (processing huge inputs by letting an LLM recursively chunk and summarize text via code execution), not a *storage solution*.
+- **Pros**: Can "reason" over 10M+ tokens without context rot.
+- **Cons**: Extremely slow (minutes), high cost, and requires complex code execution sandboxing.
+
+**Recommendation**: Use PostgreSQL/pgvector (with HNSW) as the primary storage. Implement RLM-like logic only as a specific **"Deep Research" Skill** (e.g., `analyze_large_document`) if the agent needs to process massive files on-demand, but do not use it for general memory retrieval.
 
 ## 4. Internationalization: Chinese Support
 
-### 4.1 The Dimension Problem
+### 3.1 The Dimension Problem
 
 - **BGE-small-en-v1.5**: 384 dimensions
 - **BGE-small-zh-v1.5**: 512 dimensions
 
 **Cannot mix in same vector column!**
 
-### 4.2 Solutions
+### 3.2 Solutions
 
 #### Option A: Separate Tables (Recommended)
 
@@ -339,7 +326,7 @@ When ready for Chinese:
 2. Re-embed all existing memories
 3. Single table with new dimensions
 
-### 4.3 Recommendation
+### 3.3 Recommendation
 
 **Phase 1 (English only)**:
 - Use `BGE-small-en-v1.5-q` (384d)
@@ -350,9 +337,9 @@ When ready for Chinese:
 - Or create separate `_zh` tables with `BGE-small-zh-v1.5` (512d)
 - Query service merges results from both tables
 
-## 5. Implementation Guidelines
+## 4. Implementation Guidelines
 
-### 5.1 Dependencies
+### 4.1 Dependencies
 
 ```xml
 <!-- pom.xml -->
@@ -369,7 +356,7 @@ When ready for Chinese:
 </dependency>
 ```
 
-### 5.2 Configuration
+### 4.2 Configuration
 
 ```yaml
 # application.yml
@@ -398,15 +385,14 @@ memory:
     overlap: 50
 ```
 
-### 5.3 Key Design Principles
+### 4.3 Key Design Principles
 
 1. **Separate Concerns**: Vector DB for semantic search, SQL for structured data
 2. **Query Prefixing**: Always use BGE's recommended prefix for queries
 3. **Lifecycle Management**: Short-term expires, long-term persists, both consolidate
 4. **Dimension Consistency**: Plan for Chinese support from day one
-5. **Skill Discovery**: Optional semantic search on skill descriptions only
 
-## 6. References
+## 5. References
 
 - [BGE Paper](https://arxiv.org/abs/2309.07597)
 - [pgvector Documentation](https://github.com/pgvector/pgvector)
