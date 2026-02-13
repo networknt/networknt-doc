@@ -25,6 +25,7 @@ The handler is configured via `external-service.yml`.
 | `connectTimeout` | Connection timeout in milliseconds. | `3000` |
 | `timeout` | Request timeout in milliseconds. | `5000` |
 | `enableHttp2` | Use HTTP/2 for the external connection. | `false` |
+| `verifyHostname` | Enable hostname verification for TLS/SSL connections. Set to `false` for self-signed certs. | `true` |
 | `pathPrefixes` | A list of objects defining path-to-host mapping and specific timeouts. | `[]` |
 | `pathHostMappings` | Only legacy simple mapping. Use `pathPrefixes` instead. | `null` |
 | `urlRewriteRules` | Regex rules to rewrite the URL path before sending to upstream. | `[]` |
@@ -40,6 +41,9 @@ proxyPort: 8080
 # Global Timeouts
 connectTimeout: 2000
 timeout: 5000
+
+# TLS Configuration
+verifyHostname: true
 
 # Mapping Paths to External Hosts
 pathPrefixes:
