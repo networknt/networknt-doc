@@ -89,7 +89,7 @@ Http2Client client = Http2Client.getInstance();
 Use `borrow()` to get a connection token and `restore()` to return it.
 
 ```java
-import com.networknt.client.simplepool.SimpleConnectionHolder.ConnectionToken;
+import com.networknt.client.simplepool.SimpleConnectionState.ConnectionToken;
 import io.undertow.client.ClientConnection;
 import io.undertow.client.ClientRequest;
 import io.undertow.util.Methods;

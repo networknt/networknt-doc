@@ -68,7 +68,7 @@ try {
 **After:**
 ```java
 Http2Client client = Http2Client.getInstance();
-SimpleConnectionHolder.ConnectionToken token = null;
+SimpleConnectionState.ConnectionToken token = null;
 try {
     token = client.borrow(uri, Http2Client.WORKER, Http2Client.BUFFER_POOL, true);
     ClientConnection connection = token.connection().getRawConnection();
@@ -215,7 +215,7 @@ where `$1Token` is the corresponding token variable.
 ### IMPORT_CHANGES
 Add:
 ```java
-import com.networknt.client.simplepool.SimpleConnectionHolder;
+import com.networknt.client.simplepool.SimpleConnectionState;
 ```
 
 ---

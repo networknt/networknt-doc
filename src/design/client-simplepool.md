@@ -19,7 +19,7 @@ graph TB
     end
     
     subgraph "Connection Management"
-        SCH[SimpleConnectionHolder]
+        SCS[SimpleConnectionState]
         CT[ConnectionToken]
     end
     
@@ -29,17 +29,17 @@ graph TB
     end
     
     subgraph "Undertow Implementation"
-        SCC[SimpleClientConnection]
-        SCCM[SimpleClientConnectionMaker]
+        SUC[SimpleUndertowConnection]
+        SUCM[SimpleUndertowConnectionMaker]
     end
     
     SCP --> SUCP
-    SUCP --> SCH
-    SCH --> CT
-    SCH --> SC
-    SCH --> SCM
-    SC --> SCC
-    SCM --> SCCM
+    SUCP --> SCS
+    SCS --> CT
+    SCS --> SC
+    SCS --> SCM
+    SC --> SUC
+    SCM --> SUCM
 ```
 
 ## Core Components
@@ -52,7 +52,7 @@ A protocol-agnostic interface that wraps raw connections:
 - `getLocalAddress()` - Get client-side address
 - `safeClose()` - Safely close the connection
 
-### SimpleConnectionHolder
+### SimpleConnectionState
 The central state management component that wraps a `SimpleConnection` and tracks its lifecycle:
 
 **Connection States:**
@@ -111,8 +111,8 @@ Factory interface for creating connections with two creation modes:
 2. Full control mode with XnioWorker, SSL, ByteBufferPool, and OptionMap
 
 ### Undertow Implementation
-- **SimpleClientConnection**: Wraps Undertow's `ClientConnection`
-- **SimpleClientConnectionMaker**: Creates connections using `UndertowClient` or `Http2Client`
+- **SimpleUndertowConnection**: Wraps Undertow's `ClientConnection`
+- **SimpleUndertowConnectionMaker**: Creates connections using `UndertowClient` or `Http2Client`
 
 ## Integration with Http2Client
 
@@ -187,12 +187,12 @@ if(pool != null) pool.restore(token);
 ```
 
 #### 4. Singleton Pattern Thread Safety ✅ Fixed
-**Location**: [SimpleClientConnectionMaker.java](file:///home/steve/networknt/light-4j/client/src/main/java/com/networknt/client/simplepool/undertow/SimpleClientConnectionMaker.java)
+**Location**: [SimpleUndertowConnectionMaker.java](file:///home/steve/networknt/light-4j/client/src/main/java/com/networknt/client/simplepool/undertow/SimpleUndertowConnectionMaker.java)
 
 **Fix**: Implemented thread-safe singleton using the Holder pattern:
 ```java
 private static class Holder {
-    static final SimpleClientConnectionMaker INSTANCE = new SimpleClientConnectionMaker();
+    static final SimpleUndertowConnectionMaker INSTANCE = new SimpleUndertowConnectionMaker();
 }
 public static SimpleConnectionMaker instance() {
     return Holder.INSTANCE;
@@ -210,7 +210,7 @@ if(pool != null) pool.restore(connectionToken);
 ```
 
 #### 6. Hardcoded Worker Configuration ✅ Improved
-**Location**: [SimpleClientConnectionMaker.java](file:///home/steve/networknt/light-4j/client/src/main/java/com/networknt/client/simplepool/undertow/SimpleClientConnectionMaker.java)
+**Location**: [SimpleUndertowConnectionMaker.java](file:///home/steve/networknt/light-4j/client/src/main/java/com/networknt/client/simplepool/undertow/SimpleUndertowConnectionMaker.java)
 
 **Fix**: Extracted hardcoded value to a named constant for clarity:
 ```java
