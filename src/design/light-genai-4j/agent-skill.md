@@ -34,7 +34,7 @@ CREATE TABLE skills (
     category_id UUID REFERENCES skill_categories(id),
     
     -- Implementation Details
-    implementation_type VARCHAR(50) NOT NULL, -- 'java', 'python', 'javascript', 'rest', 'mcp'
+    implementation_type VARCHAR(50) NOT NULL, -- 'java', 'eda', 'rest', 'python', 'javascript', 'mcp'
     implementation_class VARCHAR(500),        -- Fully qualified Java class name (for 'java')
     script_content TEXT,                      -- Actual source code (for 'python'/'javascript')
     api_endpoint VARCHAR(1024),               -- URL (for 'rest')
@@ -124,29 +124,15 @@ ORDER BY s.description_embedding <=> ?
 LIMIT 5;
 ```
 
-## 2. Relationship with MCP (Model Context Protocol)
+## 2. Implementation Types
 
-With this design, the agent system **does not require** an MCP server architecture. The `skills` table allows direct invocation of any capability (Java code, REST APIs, GraphQL, scripts) without the overhead or complexity of the MCP protocol.
+The `skills` table supports various `implementation_type` values to determine how a skill is executed.
 
-### 2.1 Comparison
-
-| Feature | Light GenAI 4j Design | MCP Server Architecture |
-|---------|-----------------------|-------------------------|
-| **Execution** | In-process (Java) or Direct I/O | Networked JSON-RPC |
-| **Latency** | Near-zero (function call) | HTTP/Network round-trip |
-| **Control** | Full SQL schema & validation | Remote server definition |
-| **Complexity** | Low (Unified DB table) | High (Separate servers/processes) |
-| **Ecosystem** | Custom integrations | Community-maintained tools |
-
-### 2.2 Recommendation: MCP as an Implementation Type
-
-While the architecture replaces the *need* for MCP, it is recommended to support `mcp` as a valid `implementation_type` in the `skills` table. This allows the agent to consume existing third-party MCP servers (e.g., Google Drive, Slack, GitHub) without rewriting integration logic.
-
-**Updated `skills` implementation types**:
-- `java`: Local Java class execution (Fastest, Primary)
-- `rest`: Direct HTTP/REST API calls
-- `python`/`javascript`: Dynamic script execution
-- `mcp`: Connect to an external MCP server (Optional, for 3rd party tools)
+-   **`java`**: Local Java class execution (Fastest, Primary).
+-   **`eda`**: Event-Driven Skill. See [Event-Driven Agent Architecture](event-driven-agent.md) for details on how these are executed via Kafka.
+-   **`rest`**: Direct HTTP/REST API calls.
+-   **`python`/`javascript`**: Dynamic script execution.
+-   **`mcp`**: Connect to an external MCP server (Optional, for 3rd party tools).
 
 ## 3. Implementation Guidelines
 
