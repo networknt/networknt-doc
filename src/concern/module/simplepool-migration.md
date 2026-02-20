@@ -45,15 +45,13 @@ try {
 
 ## Migration Patterns
 
-### Pattern 1: Simple Request
+### Pattern 1: Simple Borrow/Return (with .get)
 
 **Before:**
 ```java
-Http2Client client = Http2Client.getInstance();
 ClientConnection connection = null;
 try {
-    connection = client.borrowConnection(10, uri, Http2Client.WORKER, 
-        Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
+    connection = client.borrowConnection(uri, worker, pool, options).get();
     
     // Send request
     connection.sendRequest(request, callback);
@@ -67,10 +65,11 @@ try {
 
 **After:**
 ```java
-Http2Client client = Http2Client.getInstance();
+import com.networknt.client.simplepool.SimpleConnectionState;
+
 SimpleConnectionState.ConnectionToken token = null;
 try {
-    token = client.borrow(uri, Http2Client.WORKER, Http2Client.BUFFER_POOL, true);
+    token = client.borrow(uri, worker, pool, options);
     ClientConnection connection = token.connection().getRawConnection();
     
     // Send request
@@ -83,30 +82,34 @@ try {
 }
 ```
 
-### Pattern 2: With OptionMap
+### Pattern 2: With Timeout
+
+The new `borrow()` method handles timeouts internally through configuration rather than as a method parameter.
 
 **Before:**
 ```java
-OptionMap options = OptionMap.builder()
-    .set(UndertowOptions.ENABLE_HTTP2, true)
-    .set(Options.KEEP_ALIVE, true)
-    .getMap();
-    
-ClientConnection conn = client.borrowConnection(10, uri, worker, bufferPool, options);
+// Note: The deprecated method took a timeout parameter (e.g., 10 seconds)
+ClientConnection connection = client.borrowConnection(10, uri, worker, pool, options);
 ```
 
 **After:**
 ```java
-OptionMap options = OptionMap.builder()
-    .set(UndertowOptions.ENABLE_HTTP2, true)
-    .set(Options.KEEP_ALIVE, true)
-    .getMap();
-    
-ConnectionToken token = client.borrow(uri, worker, bufferPool, options);
-ClientConnection conn = token.connection().getRawConnection();
+// Note: timeout parameter is removed in the new API
+ConnectionToken token = client.borrow(uri, worker, pool, options);
+ClientConnection connection = token.connection().getRawConnection();
 ```
 
-### Pattern 3: HTTP/1.1 vs HTTP/2
+### Pattern 3: Async (IoFuture)
+
+**Before:**
+```java
+IoFuture<ClientConnection> future = client.borrowConnection(uri, worker, pool, options);
+```
+
+**Migration Rule:**
+The async `IoFuture<ClientConnection>` pattern **cannot** be directly migrated because the new `borrow()` method is synchronous. These usages should be migrated to a different async pattern or kept on the old API until fully deprecated.
+
+### Pattern 4: HTTP/1.1 vs HTTP/2
 
 ```java
 // HTTP/2 (multiplexed)
@@ -235,6 +238,29 @@ try {
     // use connection
 } finally {
     if (token != null) client.restore(token);
+}
+```
+
+### Cannot find symbol ConnectionToken
+**Symptom:** Compilation error stating `Cannot find symbol class ConnectionToken`.
+
+**Cause:** Missing import for `SimpleConnectionState`.
+
+**Fix:** Add the required import:
+```java
+import com.networknt.client.simplepool.SimpleConnectionState;
+```
+
+### getRawConnection() returns null
+**Symptom:** `NullPointerException` or unexpected behavior because `token.connection().getRawConnection()` returns `null`.
+
+**Cause:** The connection has not been properly established yet.
+
+**Fix:** Check `token.connection().isOpen()` before attempting to use the raw connection:
+```java
+if (token.connection().isOpen()) {
+    ClientConnection connection = token.connection().getRawConnection();
+    // use connection
 }
 ```
 
