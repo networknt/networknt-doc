@@ -7,6 +7,8 @@
     - [Memory Embedding](./design/light-genai-4j/memory-embedding.md)
     - [Agent Skill Tool](./design/light-genai-4j/agent-skill-tool.md)
     - [Event Driven Agent](./design/light-genai-4j/event-driven-agent.md)
+  - [light-hybrid-4j](./design/light-hybrid-4j.md)
+    - [JSON RPC 2.0](./design/light-hybrid-4j/json-rpc.md)
   - [MCP Rotuer](./design/mcp-router.md)
   - [Config Reload](./design/config-reload.md)
   - [Module Registry](./design/module-registry.md)
