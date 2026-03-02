@@ -2,9 +2,9 @@
 
 When operating a Kafka sidecar that runs Kafka Streams applications, it is crucial to monitor the health of these streams. The `SidecarHealthHandler` provides a health check endpoint that verifies if all registered Kafka Streams instances are in `RUNNING` or `REBALANCING` state.
 
-## Registering Kafka Streams
+## Registering and Unregistering Kafka Streams
 
-To enable health monitoring for your Kafka Streams application, you must verify that your streams instance is registered with the `KafkaStreamsRegistry`.
+To enable health monitoring for your Kafka Streams application, you must verify that your streams instance is registered with the `KafkaStreamsRegistry`. You should also unregister it when the application shuts down.
 
 ### Usage
 
@@ -24,6 +24,18 @@ KafkaStreamsRegistry.register("my-streams-app", streams);
 
 The `SidecarHealthHandler` will automatically discover all registered streams and include them in the health check. If any registered stream is not in a healthy state, the health check endpoint will return `ERROR` (status 500 equivalent logic, though specifically returning a string).
 
+To prevent the health check from returning an error during a graceful server shutdown, you should unregister the stream instance in your application's shutdown hook or `close()` method:
+
+```java
+// ... inside shutdown hook or LightStreams close() loop ...
+
+if (streams != null) {
+    streams.close();
+}
+// Unregister the streams instance
+KafkaStreamsRegistry.unregister("my-streams-app");
+```
+
 ### Example
 
 Here is an example from `WordCountStreams`:
@@ -40,6 +52,14 @@ Here is an example from `WordCountStreams`:
         KafkaStreamsRegistry.register("WordCountStreams", wordCountStreams);
     }
 
+    @Override
+    public void close() {
+        if (wordCountStreams != null) {
+            wordCountStreams.close();
+        }
+        // Unregistration 
+        KafkaStreamsRegistry.unregister("WordCountStreams");
+    }
 ```
 
 ## Example Applications
@@ -64,4 +84,5 @@ Both examples show how to:
 - Configure the Kafka Streams application using `KafkaStreamsConfig`.
 - Start the `KafkaStreams` instance.
 - Register the instance with `KafkaStreamsRegistry` to enable health monitoring via `SidecarHealthHandler`.
+- Unregister the instance during the application shutdown lifecycle using `KafkaStreamsRegistry.unregister()` to cleanly handle server shutdown.
 
