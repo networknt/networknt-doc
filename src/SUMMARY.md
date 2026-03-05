@@ -141,3 +141,7 @@
   - [common](./tutorial/common.md) 
     - [docker-remote-debugging](./tutorial/common/docker-remote-debugging.md)
 
+- [Support](./support.md)
+  - [GitHub](./support/github.md) 
+    - [Light Bot](./support/github/light-bot.md)
+    - [Internal Tools](./support/github/internal-tools.md)
