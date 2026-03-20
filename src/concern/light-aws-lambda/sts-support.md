@@ -1,12 +1,12 @@
 # STS Support
 
-The `lambda-invoker` module supports AWS Security Token Service (STS) to obtain temporary, limited-privilege security credentials for invoking Lambda functions. This is an alternative to providing long-term IAM access keys and and it is a fundamental component of AWS Identity and Access Management (IAM) used to enhance security by minimizing the need for long-term access keys.
+The `lambda-invoker` module supports AWS Security Token Service (STS) to obtain temporary, limited-privilege *assumed-role* credentials for invoking Lambda functions. This is an alternative to directly using long-lived static IAM access keys and and it is a fundamental component of AWS Identity and Access Management (IAM) used to enhance security by following the principle of least privilege.
 
 ## Key Features
 
 *   **Temporary Credentials**: Provides short-lived credentials (access key, secret key, and token) that expire, reducing risks from compromised keys.
 *   **AssumeRole**: Obtains temporary credentials for cross-account access or delegated permissions.
-*   **Automatic Refresh**: The `LambdaFunctionHandler` automatically refreshes the temporary credentials before they expire.
+*   **Automatic Managed Refresh**: The `LambdaFunctionHandler` leverages the AWS SDK's `StsAssumeRoleCredentialsProvider` to handle token refresh automatically and asynchronously.
 
 ## Configuration
 
@@ -31,19 +31,22 @@ durationSeconds: 3600
 
 ## How it Works
 
-When `stsEnabled` is set to `true`, the `LambdaFunctionHandler` use the `StsClient` to call the `AssumeRole` operation with the configured `roleArn`, `roleSessionName`, and `durationSeconds`.
+When `stsEnabled` is set to `true`, the `LambdaFunctionHandler` initializes an `StsAssumeRoleCredentialsProvider`. 
 
-The returned temporary credentials (access key, secret key, and session token) are then used to initialize the `LambdaAsyncClient`.
+This provider uses the **AWS Default Credential Chain** (e.g., EC2 instance profile, ECS task role, environment variables, or local profile) as the *source* credentials to call the `AssumeRole` operation.
+
+The returned temporary credentials (access key, secret key, and session token) are then used by the `LambdaAsyncClient` to sign invocation requests.
 
 ### Automatic Refreshment
 
-The `LambdaFunctionHandler` checks the expiration time of the cached STS credentials before each Lambda invocation. If the credentials are within a 5-minute buffer of expiring, the handler automatically initiates a new `AssumeRole` request to refresh the credentials and re-initializes the `LambdaAsyncClient`.
+The `StsAssumeRoleCredentialsProvider` automatically manages the lifecycle of the temporary credentials. It preemptively and asynchronously refreshes the session before it expires, ensuring zero downtime and omitting the need for manual refresh logic in the application code.
 
 ## IAM Policy Requirements
 
-The IAM entity (user or role) that the light-4j application is running as must have the `sts:AssumeRole` permission for the target `roleArn`.
+1. **Source Credentials Permission**: The IAM entity (e.g., EC2 instance profile) that the light-4j application is running as must have the `sts:AssumeRole` permission for the target `roleArn`.
+2. **Target Role Trust Relationship**: The target role (`roleArn`) must have a trust relationship (Principal) that allows the application's source IAM entity to assume it.
 
-### Example IAM Policy
+### Example Source IAM Policy
 
 ```json
 {
@@ -57,5 +60,3 @@ The IAM entity (user or role) that the light-4j application is running as must h
     ]
 }
 ```
-
-Additionally, the target role must have a trust relationship that allows the application's IAM entity to assume it.
