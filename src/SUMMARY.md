@@ -123,6 +123,7 @@
     - [Memory Assault](./concern/light-chaos-monkey/memory-assault.md)
   - [Light-sws-lambda](./concern/light-aws-lambda.md)
     - [Lambda Invoker](./concern/light-aws-lambda/lambda-invoker.md)
+    - [STS Support](./concern/light-aws-lambda/sts-support.md)
   - [Light-websocket-4j](./concern/light-websocket-4j.md)
     - [WebSocket Client](./concern/light-websocket-4j/websocket-client.md)
     - [WebSocket Router](./concern/light-websocket-4j/websocket-router.md)
