@@ -77,6 +77,7 @@
       - [Consul Registry](./concern/module/consul-registry.md)
       - [Common](./concern/module/common.md)
       - [Config](./concern/module/config.md)
+      - [Startup](./concern/module/startup.md)
       - [Value Injection](./concern/module/value-injection.md)
       - [Cache Manager](./concern/module/cache-manager.md)
       - [Data Source](./concern/module/data-source.md)
