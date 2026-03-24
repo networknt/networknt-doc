@@ -116,6 +116,7 @@
   - [Light-spa-4j](./concern/light-spa-4j.md)
     - [Msal Exchange](./concern/light-spa-4j/msal-exchange.md)
     - [Stateless Auth](./concern/light-spa-4j/stateless-auth.md)
+    - [WebSocket Security](./concern/light-spa-4j/websocket-security.md)
   - [Light-chaos-monkey](./concern/light-chaos-monkey.md)
     - [Chaos Monkey](./concern/light-chaos-monkey/chaos-monkey.md)
     - [Exception Assault](./concern/light-chaos-monkey/exception-assault.md)
