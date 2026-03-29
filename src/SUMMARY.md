@@ -145,6 +145,7 @@
     - [Two Stage Startup](./concern/light-controller/two-stage-startup.md)
     - [Direct Connection](./concern/light-controller/direct-connection.md)
     - [MCP Architecture](./concern/light-controller/mcp-architecture.md)
+    - [Unified Channel](./concern/light-controller/unified-microservice-channel.md)
 - [Example](./example.md)
   - [Light-websocket-4j](./example/light-websocket-4j.md) 
     - [llmchat-server](./example/light-websocket-4j/llmchat-server.md)
