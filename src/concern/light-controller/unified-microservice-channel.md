@@ -49,7 +49,19 @@ The controller must not use the remote socket IP as the canonical service addres
 
 The remote socket IP can still be recorded for logging and audit, but it must not be used for routing or discovery.
 
-### 2.3 One Controller per Tenant
+### 2.3 Unified Control Plane Channel
+
+For administrative operations, AI agents, and the Portal UI, the controller should expose a dedicated MCP-compliant channel:
+
+- `/ctrl/mcp`
+
+This channel is used for:
+
+- **Administrative Tools**: MCP `tools/call` for server info, log level updates, configuration reloads, etc.
+- **Real-time Notifications**: Controller-to-client notifications for runtime instance lifecycle changes (`instance_connected`, `instance_disconnected`).
+- **AI-Native Operations**: Discovery and execution of controller capabilities via the Model Context Protocol.
+
+### 2.4 One Controller per Tenant
 
 Each controller instance serves exactly one tenant.
 
@@ -130,6 +142,20 @@ The discovery JWT should also be checked using the `host` claim against the cont
 Once a service is connected on `/ws/microservice`, no separate discovery token is needed for service-owned discovery requests on that same socket.
 
 The separate discovery bearer token remains relevant only for discovery-only clients using `/ws/discovery`.
+
+### 4.4 `/ctrl/mcp`
+
+Authentication and authorization for the control plane channel are performed at the gateway (BFF) level or directly on the controller via the WebSocket upgrade request:
+
+```text
+Authorization: Bearer <user-jwt>
+```
+
+Requirements:
+
+- User must have administrative or operator roles.
+- The JWT `host` claim must match the controller-configured `hostId` to ensure tenant isolation.
+- Connections should be restricted to known administrative origins (e.g., the Portal UI).
 
 ## 5. Runtime Instance Identity
 
@@ -249,6 +275,10 @@ On disconnect:
 - use `/ws/microservice` as the only channel for service registration and service-owned discovery
 - stop relying on a separate service-side discovery token for normal service use
 
+### 8.4 Control Plane Consolidation
+
+Transition the Portal UI from separate REST polling and event sockets to the unified `/ctrl/mcp` channel. Real-time hydration and updates should be delivered via MCP notifications.
+
 ## 9. Summary
 
 The target model is:
@@ -256,7 +286,9 @@ The target model is:
 - one controller instance per tenant
 - one service socket on `/ws/microservice`
 - one discovery-only socket on `/ws/discovery` for non-service clients
+- one unified control plane socket on `/ctrl/mcp` for the Portal UI and AI agents
 - one shared registration payload for all controller backends
 - client-supplied `address` as the canonical service address
 - controller-configured `hostId` enforced by validating it against the JWT `host` claim
 - runtime instance lifecycle persisted with existing runtime instance events and aggregate versioning
+- administrative actions and real-time dashboard updates consolidated into MCP tools and notifications
