@@ -180,12 +180,44 @@ In most high-availability scenarios, retrying a third time (or using a "3-strike
 
 Header Restriction: Ensure your JVM is started with -Djdk.httpclient.allowRestrictedHeaders=connection to allow the HttpClient to modify the Connection header.
 
-To make it easier, we have added the following code to the handler. 
+This must be configured at JVM startup, for example:
 
+```bash
+-Djdk.httpclient.allowRestrictedHeaders=connection,host
 ```
-    static {
-        System.setProperty("jdk.httpclient.allowRestrictedHeaders", "host,connection");
+
+or in the JDK `conf/net.properties` file.
+
+Do not rely on calling `System.setProperty("jdk.httpclient.allowRestrictedHeaders", ...)` inside application code. The JDK does not guarantee that this property will be honored when set programmatically after startup, and in practice the request builder can still fail with:
+
+```text
+java.lang.IllegalArgumentException: restricted header name: "Connection"
+```
+
+This behavior was observed in `light-4j` issue `#2740` when the retry logic attempted to add `Connection: close` dynamically.
+
+### Safe Fallback Behavior
+
+Because the runtime property may be missing or ignored, the retry implementation should degrade safely:
+
+* First attempt: use the original request
+* Retry attempts: try to add `Connection: close`
+* If the JDK rejects the restricted header, log a warning and fall back to a normal retry request instead of throwing a runtime exception
+
+Example:
+
+```java
+static HttpRequest buildRetryRequest(HttpRequest request, int attempt) {
+    try {
+        logger.info("Attempt {} failed. Retrying with 'Connection: close' to force fresh connection.", attempt);
+        return HttpRequest.newBuilder(request, (name, value) -> true)
+                .header("Connection", "close")
+                .build();
+    } catch (IllegalArgumentException e) {
+        logger.warn("Attempt {} retry could not set restricted header 'Connection: close'. Falling back to a normal retry. Configure -Djdk.httpclient.allowRestrictedHeaders=connection,host at JVM startup to enable fresh-connection retries.", attempt, e);
+        return request;
     }
-
+}
 ```
 
+This ensures the retry logic still works even when the environment is not configured for restricted headers. The only feature that is lost in that case is the explicit forced-connection-close hint.
