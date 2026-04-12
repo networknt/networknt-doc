@@ -50,6 +50,25 @@ The router supports the following MCP JSON-RPC methods:
 *   `tools/list`: Lists all configured tools with their names, descriptions, and input schemas.
 *   `tools/call`: Executes a specific tool by name. The `arguments` in the request are passed to the downstream service.
 
+## Advanced Search and Filtering
+
+To prevent context window bloat for AI agents, the `tools/list` method supports optional filtering parameters:
+
+*   `query` (string): Filters tools where the name or description contains this case-insensitive substring.
+*   `intent` (string): Additional refinement for tool discovery based on user or agent intent.
+
+Example request:
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/list",
+  "params": {
+    "query": "weather"
+  },
+  "id": 1
+}
+```
+
 ## Usage
 
 Register the `McpHandler` in your `handler.yml` chain.
