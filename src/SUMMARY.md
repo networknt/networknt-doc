@@ -9,6 +9,8 @@
     - [Event Driven Agent](./design/light-genai-4j/event-driven-agent.md)
   - [light-hybrid-4j](./design/light-hybrid-4j.md)
     - [JSON RPC 2.0](./design/light-hybrid-4j/json-rpc.md)
+  - [light-bot](./design/light-bot.md)
+    - [Sync GitHub](./design/light-bot/sync-github.md)
   - [MCP Rotuer](./design/mcp-router.md)
   - [Config Reload](./design/config-reload.md)
   - [Module Registry](./design/module-registry.md)
