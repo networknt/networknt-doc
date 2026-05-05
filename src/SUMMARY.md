@@ -20,6 +20,7 @@
   - [Client Simple Pool](./design/client-simplepool.md)
   - [Remove AbsSimJwt](./design/remove-simplejwtverify.md)
   - [Fine-Grained Authorization](./design/fine-grained-auth.md)
+  - [Portal Registry Transition](./design/portal-registry-transition.md)
 - [Cross-Cutting-Concerns](./cross-cutting-concerns.md)
   - [Light-4j](./concern/light-4j.md)
     - [Http Handler](./concern/http-handler.md)
