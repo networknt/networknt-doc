@@ -3,6 +3,8 @@
 - [Introduction](./introduction.md)
 - [Architecture](./architecture.md)
 - [Design](./design.md)
+  - [light-4j](./design/light-4j.md)
+    - [PBKDF2-Upgrade](./design/light-4j/pbkdf2-upgrade.md)
   - [light-genai-4j](./design/light-genai-4j.md)
     - [Memory Embedding](./design/light-genai-4j/memory-embedding.md)
     - [Agent Skill Tool](./design/light-genai-4j/agent-skill-tool.md)
