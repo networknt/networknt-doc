@@ -22,6 +22,8 @@ The module is configured via `statelessAuth.yml`.
 **Key Settings:**
 *   `enabled`: Enable or disable the handler.
 *   `authPath`: Path to handle the authorization code callback (default: `/authorization`).
+*   `logoutPath`: Path that clears the BFF session (default: `/logout`).
+*   `logoutCsrfEnforced`: Enforce logout double-submit CSRF after observe-only qualification (default: `false`).
 *   `cookieDomain`: Domain for the session cookies (e.g., `localhost` or your domain).
 *   `cookiePath`: Path scope for cookies (default: `/`).
 *   `cookieSecure`: Set to `true` for HTTPS environments.
@@ -34,3 +36,22 @@ The configuration also includes sections for configuring social login providers 
 *   `googlePath`, `googleClientId`, `googleRedirectUri`
 *   `facebookPath`, `facebookClientId`
 *   `githubPath`, `githubClientId`
+
+## HTTP Contract
+
+`/authorization` and enabled `/google`, `/facebook`, and `/github` endpoints
+are OAuth authorization-code callbacks and remain GET-only. They accept
+`code` and optional `state` query parameters and are not part of the mutation
+method migration.
+
+Logout is a credentialed, bodyless `POST` to `/logout` with `X-CSRF-TOKEN`
+read from the readable `csrf` cookie. A zero-length request is valid even when
+a shared client declares `Content-Type: application/json`. Successful logout
+returns `204 No Content`, no response content type or body, and deletion
+cookies for every cookie name the handler can set. Route `OPTIONS /logout`
+explicitly through a chain with CORS before `stateless`.
+
+During the compatibility release, an explicitly routed legacy GET logout
+remains accepted and measured. Remove that bridge only after the Phase 4
+release gate. Strict enforcement returns HTTP `405`, `ERR10008`, and
+`Allow: POST`.

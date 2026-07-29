@@ -24,6 +24,7 @@ The module is configured via `msal-exchange.yml`.
 *   `cookieDomain` / `cookiePath`: Scope configuration for the session cookies.
 *   `cookieSecure`: Whether to mark cookies as Secure (HTTPS only).
 *   `sessionTimeout`: Max age for the session cookies.
+*   `logoutCsrfEnforced`: Enforce logout double-submit CSRF after observe-only qualification (default: `false`).
 
 **Example Configuration:**
 
@@ -36,4 +37,22 @@ cookiePath: /
 cookieSecure: false
 sessionTimeout: 3600
 rememberMeTimeout: 604800
+logoutCsrfEnforced: false
 ```
+
+## HTTP Contract
+
+Token exchange is a bodyless `POST` to `/auth/ms/exchange` with the Microsoft
+token only in `Authorization: Bearer ...`. Logout is a credentialed, bodyless
+`POST` to `/auth/ms/logout` with `X-CSRF-TOKEN` read from the readable `csrf`
+cookie. A zero-length request remains valid when a shared client declares
+`Content-Type: application/json`.
+
+Successful logout returns `204 No Content`, no response content type or body,
+and deletion cookies for every cookie name the handler can set. Route
+`OPTIONS` explicitly through a chain with CORS before `msal-exchange`.
+
+During the compatibility release, explicitly routed legacy GET exchange and
+logout requests remain accepted and measured. Remove those bridge routes only
+after the Phase 4 release gate. Strict enforcement returns HTTP `405`,
+`ERR10008`, and `Allow: POST`.
