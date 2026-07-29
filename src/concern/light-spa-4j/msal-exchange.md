@@ -52,7 +52,6 @@ Successful logout returns `204 No Content`, no response content type or body,
 and deletion cookies for every cookie name the handler can set. Route
 `OPTIONS` explicitly through a chain with CORS before `msal-exchange`.
 
-During the compatibility release, explicitly routed legacy GET exchange and
-logout requests remain accepted and measured. Remove those bridge routes only
-after the Phase 4 release gate. Strict enforcement returns HTTP `405`,
-`ERR10008`, and `Allow: POST`.
+Exchange and logout are POST-only. A legacy GET or another unsupported method
+returns HTTP `405`, `ERR10008`, and `Allow: POST` before token-server or cookie
+side effects.

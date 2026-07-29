@@ -51,7 +51,5 @@ returns `204 No Content`, no response content type or body, and deletion
 cookies for every cookie name the handler can set. Route `OPTIONS /logout`
 explicitly through a chain with CORS before `stateless`.
 
-During the compatibility release, an explicitly routed legacy GET logout
-remains accepted and measured. Remove that bridge only after the Phase 4
-release gate. Strict enforcement returns HTTP `405`, `ERR10008`, and
-`Allow: POST`.
+Logout is POST-only. A legacy GET or another unsupported method returns HTTP
+`405`, `ERR10008`, and `Allow: POST` before cookie deletion.
