@@ -57,6 +57,7 @@
       - [Sanitizer Handler](./concern/middleware/sanitizer-handler.md)
       - [Security Handler](./concern/middleware/security-handler.md)
       - [Unified Security](./concern/middleware/unified-security.md)
+      - [HMAC Webhook Authentication](./concern/middleware/hmac-webhook-authentication.md)
       - [Sidecar Handler](./concern/middleware/sidecar-handler.md)
       - [SAML Token](./concern/middleware/saml-token.md)
       - [Token Handler](./concern/middleware/token-handler.md)
