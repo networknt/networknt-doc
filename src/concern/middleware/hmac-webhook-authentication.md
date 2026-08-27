@@ -2,8 +2,9 @@
 
 Status: Implementation complete through Phase 4 local qualification for
 `light-4j`. Release qualification still requires a deployed GitHub-to-Jenkins
-environment and the planned Rust implementation; controller fan-out remains an
-optional external integration. The first provider profile is GitHub.
+environment and cross-runtime acceptance against the implemented Rust version;
+controller fan-out remains an optional external integration. The first provider
+profile is GitHub.
 
 Tracking issue: [networknt/light-4j#2772](https://github.com/networknt/light-4j/issues/2772)
 
@@ -1144,17 +1145,21 @@ The disposable-container default is the portable `redis:7-alpine` image.
 Environments that require a registry mirror can set
 `HMAC_PHASE4_REDIS_IMAGE` without changing the gate.
 
-The language-neutral fixture
+The Java language-neutral fixture
 `hmac/src/test/resources/qualification/hmac-webhook-v1.properties` stores the
 raw request body and public test secret as base64 plus the expected GitHub
 signature and header contract. Java validates this fixture in
-`HmacQualificationFixtureTest`; the Rust suite must consume this same versioned
-fixture contract when its HMAC implementation exists.
+`HmacQualificationFixtureTest`; the Rust suite consumes a JSON mirror of this
+same version-1 contract. The repositories do not load one physical fixture
+file, so cross-runtime release qualification must also compare their version-1
+vectors explicitly.
 
-The local gate does not claim the two external acceptance items. No Jenkins or
-GitHub webhook target is part of the local workspace deployment, and the
-companion `light-fabric` HMAC middleware remains a design rather than an
-executable Rust suite. Before release, run one real GitHub-to-Jenkins delivery,
+The local gate does not claim the external acceptance items. No Jenkins or
+GitHub webhook target is part of the local workspace deployment. The companion
+`light-fabric` HMAC middleware is implemented through Phase 4 local
+qualification, while its production HTTP/2 over TLS, multi-process Redis, and
+deployed GitHub-to-Jenkins checks remain release gates. Before release, run one
+real GitHub-to-Jenkins delivery,
 duplicate, non-`2xx` redelivery, and current/previous-secret rotation exercise,
 then run the version-1 fixture through the Rust suite. Record those environment
 results separately from the repeatable local gate.
