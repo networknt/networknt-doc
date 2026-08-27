@@ -1,7 +1,9 @@
 # HMAC Webhook Authentication for Java
 
-Status: Proposed design for `light-4j`. The first provider profile is GitHub.
-Implementation has not started.
+Status: Implementation complete through Phase 4 local qualification for
+`light-4j`. Release qualification still requires a deployed GitHub-to-Jenkins
+environment and the planned Rust implementation; controller fan-out remains an
+optional external integration. The first provider profile is GitHub.
 
 Tracking issue: [networknt/light-4j#2772](https://github.com/networknt/light-4j/issues/2772)
 
@@ -73,9 +75,12 @@ behavior remains the default for legacy deployments.
 - Duplicate deliveries return an empty `200` and do not invoke Jenkins or the
   application handler.
 - A final non-`2xx` response releases the replay reservation for a later retry.
-- Replay storage is pluggable. With no configured provider, a process-local
-  store is used. An explicitly configured distributed store never silently
-  falls back to local storage when unavailable.
+- Replay storage is selected through the existing light-4j `service.yml`
+  singleton binding. The HMAC artifact ships a copyable process-local binding
+  fragment; each application must include it in its actual `service.yml`.
+  Selecting a distributed implementation requires its artifact on the runtime
+  classpath and a process restart; it never silently falls back to local storage
+  when unavailable or misconfigured.
 - An authorized operator can remove one replay record before requesting an
   intentional GitHub redelivery.
 - Existing Java prefix matching and existing non-HMAC security configuration
@@ -209,7 +214,7 @@ The responsibilities are therefore split:
 | Component | Responsibility |
 |---|---|
 | `HmacRequestInterceptor` | Match an HMAC rule, validate method/headers/encoding/body limit, verify the raw bytes, and attach an immutable pending result. It performs no network I/O. |
-| `HmacHandler` | Require the pending result, atomically reserve the replay key through an asynchronous SPI, return local `200` for a duplicate, or attach final authentication evidence and continue. |
+| `HmacHandler` | Require the pending result, atomically reserve the replay key through the injected asynchronous replay-store service, return local `200` for a duplicate, or attach final authentication evidence and continue. |
 | `UnifiedSecurityHandler` | Match the existing first prefix, require evidence for `hmacProfile`, then enforce an optional JWT or API key with existing code. |
 
 Although `HmacHandler` is an independent handler-chain component, Unified
@@ -264,7 +269,8 @@ prefix length and does not add method-aware matching.
 
 New validation applies only when HMAC is configured:
 
-- reject an HMAC rule shadowed by an earlier matching prefix;
+- reject any overlap between an HMAC prefix and an earlier first-match rule,
+  including an earlier rule that is more specific than the HMAC prefix;
 - reject an unknown or blank HMAC profile;
 - reject an HMAC prefix that overlaps any `anonymousPrefixes` value;
 - reject an HMAC prefix not covered by
@@ -289,8 +295,9 @@ GitHub qualification uses `POST` only.
 
 ## HMAC Profile Configuration
 
-`hmac.yml` contains provider profiles and optional replay-store definitions. It
-does not contain route prefixes.
+`hmac.yml` contains provider profiles and replay policy. It does not select a
+replay-store implementation and does not contain route prefixes. The store
+implementation is selected through `service.yml`.
 
 ```yaml
 enabled: true
@@ -319,7 +326,6 @@ profiles:
     replay:
       enabled: true
       idHeader: X-GitHub-Delivery
-      store: webhook-replay
       retentionSeconds: 604800
 
   shared-build-system:
@@ -340,17 +346,39 @@ profiles:
     replay:
       enabled: true
       idHeader: X-Build-Delivery
-      store: webhook-replay
       retentionSeconds: 604800
-
-replayStores:
-  webhook-replay:
-    type: redis
-    urlEnv: WEBHOOK_REPLAY_REDIS_URL
-    keyPrefix: "light:hmac-replay:"
-    connectTimeoutMillis: 1000
-    operationTimeoutMillis: 1000
 ```
+
+Version 1 uses exactly one replay-store service per JVM. Applications can copy
+the supplied fragment to select the bounded local implementation:
+
+```yaml
+# service.yml
+singletons:
+  - com.networknt.hmac.WebhookReplayStore:
+      - com.networknt.hmac.LocalWebhookReplayStore:
+          maxEntries: 100000
+```
+
+A deployment that includes the optional Redis adapter switches the binding
+without rebuilding the application JAR:
+
+```yaml
+# service.yml
+singletons:
+  - com.networknt.hmac.WebhookReplayStore,com.networknt.server.StartupHookProvider,com.networknt.server.ShutdownHookProvider:
+      - com.networknt.hmac.redis.RedisWebhookReplayStore:
+          urlEnv: WEBHOOK_REPLAY_REDIS_URL
+          keyPrefix: "light:hmac-replay:"
+          connectTimeoutMillis: 1000
+          operationTimeoutMillis: 1000
+```
+
+The selected implementation class and all of its dependencies must already be
+on the runtime classpath. `SingletonServiceFactory` constructs `service.yml`
+bindings once per JVM, so changing the binding requires a restart. Reloading
+`hmac.yml` may change profile retention and secret references, but cannot switch
+the store implementation in a running process.
 
 Version 1 supports:
 
@@ -598,9 +626,9 @@ Java version 1 relies on the existing server/request read timeout while
 `RequestInterceptorInjectionHandler` collects the body. It does not add a new
 HMAC-specific body-read timer to this shared production handler.
 
-## Replay Store
+## Replay Store Service
 
-Replay behavior needs a purpose-specific asynchronous SPI:
+Replay behavior needs a purpose-specific asynchronous service contract:
 
 ```java
 public interface WebhookReplayStore {
@@ -614,6 +642,23 @@ public interface WebhookReplayStore {
     CompletionStage<Boolean> forceRemove(WebhookReplayKey key);
 }
 ```
+
+`HmacRuntime` resolves this service with
+`SingletonServiceFactory.getBeans(WebhookReplayStore.class)`, requires exactly
+one implementation, and pins that singleton in each immutable runtime. If any
+enabled profile uses replay and the binding is missing, duplicated, cannot be
+constructed, or reports an invalid configuration, HMAC startup/runtime
+compilation fails closed. There is no implicit local fallback. The provided
+application template obtains default local behavior by explicitly binding
+`LocalWebhookReplayStore`.
+
+The service interface remains in the core HMAC artifact. Local and Redis are
+separate implementation classes, and the Redis implementation remains in an
+optional artifact. An implementation that owns a client or cleanup executor may
+also implement light-4j `StartupHookProvider` and `ShutdownHookProvider`; the
+interfaces must be listed together in the same comma-separated `service.yml`
+key so `SingletonServiceFactory` shares one implementation object and the
+existing server lifecycle initializes and closes that object.
 
 `ReserveOutcome` is either `Reserved`, containing an opaque reservation with a
 random owner token, or `Duplicate`. The logical key contains the profile,
@@ -636,8 +681,8 @@ clients, but must implement this stronger contract directly.
 
 ### Local Store
 
-When no replay store is configured, use a process-local implementation. It
-must:
+Applications selecting the process-local implementation bind the supplied
+`LocalWebhookReplayStore` fragment in their own `service.yml`. The store must:
 
 - use atomic `putIfAbsent` semantics;
 - support a TTL per reservation;
@@ -664,8 +709,8 @@ or a full store returns `503`; it never falls back to local storage for that
 request.
 
 Whether the adapter is packaged in `light-4j` or alongside reusable providers
-in `light-session-4j` is a repository-layout decision, not a change to this
-contract.
+in `light-session-4j` is a repository-layout decision, not a change to the
+service contract or its `service.yml` binding.
 
 ### Retention and Final Outcome
 
@@ -720,10 +765,18 @@ The module follows the current `Config.load()` identity-based pattern:
 
 - `HmacConfig.load()` returns a new immutable config after its mapped config is
   cleared and reloaded;
-- `HmacRuntime.load()` compiles and atomically publishes resolved profiles and
-  replay providers for that config identity; and
+- `HmacRuntime.load()` obtains the already-constructed
+  `WebhookReplayStore` singleton from `SingletonServiceFactory`, compiles the
+  profiles, and atomically publishes a runtime for that config identity; and
 - the interceptor attaches the chosen runtime to the request so in-flight work
   continues consistently after another reload.
+
+`service.yml` is not part of this hot-reload path because
+`SingletonServiceFactory` builds its service map during static initialization.
+A local-to-Redis or Redis-to-local change therefore requires a process restart.
+The new process must fail startup if the selected class, dependency, or provider
+configuration is unavailable; it must not preserve availability by substituting
+the local implementation.
 
 Invalid newly loaded HMAC configuration fails closed for affected new requests
 and does not alter in-flight requests. Error logs identify the profile and
@@ -767,16 +820,17 @@ Recommended metrics are:
 
 - `hmac_webhook_requests_total{profile,outcome}` where outcome is `accepted`,
   `duplicate`, `invalid`, `too_large`, `unsupported_encoding`,
-  `store_unavailable`, or `chain_error`;
+  `store_unavailable`, `runtime_error`, or `chain_error`;
 - `hmac_webhook_verification_duration_seconds{profile}`;
 - `hmac_webhook_body_bytes{profile}`;
 - `hmac_replay_operations_total{store_type,operation,outcome}`; and
 - `hmac_replay_local_entries`.
 
 Logs may include the profile, matched prefix, correlation ID, store type, final
-status, and an optional one-way truncated hash of the replay tuple. They must
-not include the body, signature, secret, raw selector, replay ID, JWT, or API
-key. Selector and replay ID must not be metric labels.
+status, an optional one-way truncated hash of the replay tuple, and the
+exception type/stack for an unexpected runtime failure. They must not include
+the body, signature, secret, raw selector, replay ID, JWT, or API key. Selector
+and replay ID must not be metric labels.
 
 Startup and reload output identifies local versus distributed replay scope. A
 local store should produce a warning when the deployment declares more than one
@@ -798,6 +852,10 @@ instance.
   branch to Unified Security or the callee.
 - Prove an in-flight request continues with its pinned runtime during reload.
 - Prove missing/empty environment variables fail without exposing values.
+- Prove `service.yml` selects local and Redis implementations without changing
+  HMAC consumer code, and that a missing or invalid binding fails closed.
+- Prove changing `hmac.yml` cannot replace the injected replay-store singleton;
+  provider changes take effect only after restart.
 
 ### Cryptography and Raw Bytes
 
@@ -849,7 +907,8 @@ instance.
 - Fail closed on local capacity exhaustion and Redis outage.
 - Confirm a JVM restart loses local state and does not lose distributed state.
 - Confirm operator removal permits intentional redelivery.
-- Confirm controller fan-out removes local entries on every selected instance.
+- If controller integration is deployed, confirm its fan-out removes local
+  entries on every selected instance. This is not part of the core Java module.
 
 ### GitHub-to-Jenkins Qualification
 
@@ -884,6 +943,33 @@ If these assertions fail, stop and choose a dedicated buffered HMAC handler.
 Changing the general `RequestInterceptor` contract is not the fallback for the
 maintenance branch.
 
+Phase 0 was completed in the `light-4j` `handler` module on 2026-08-26. The
+focused `HmacPhase0IntegrationTest` proves all of the assertions above with a
+real Undertow server and a counting downstream handler. The production
+`RequestInterceptorInjectionHandler` now supports an opt-in `maxBodyBytes`
+limit: a positive value requires EOF at or below the limit and returns `413`
+after observing the first excess byte, while zero preserves the legacy
+`maxBuffers` behavior. HMAC startup validation verifies that `maxBuffers` can
+retain the configured exact byte limit. The boundary fixture uses the default
+16 MiB HMAC limit and proves that exactly 16 MiB is accepted while the first
+excess byte is rejected.
+
+A handler-chain regression fixture also sends repeated requests through one
+singleton `RequestInterceptorInjectionHandler` at different positions in two
+configured paths. Each exchange resolves and retains its own continuation;
+the handler instance never caches a successor discovered from `handler.yml`.
+
+The asynchronous proof established the Undertow lifecycle contract for the
+production `HmacHandler`: call `exchange.dispatch()` before returning while the
+reservation is pending, and call `exchange.dispatch(HttpHandler)` from the
+completion callback to resume the chain. This keeps the I/O thread
+non-blocking, prevents premature exchange completion, and lets an exchange
+completion listener observe the final downstream status. The same fixture also
+proves that duplicate-buffer reads preserve pooled-buffer positions and that a
+post-verification in-place body mutation fails fingerprint revalidation before
+reservation or downstream invocation. A dedicated buffered HMAC handler is not
+required.
+
 ### Phase 1: Configuration and Verification Core
 
 - Add `hmac-config` and `hmac` modules.
@@ -892,12 +978,83 @@ maintenance branch.
   loading, raw-buffer HMAC verification, and redacted representations.
 - Add focused config, crypto, byte-boundary, and reload tests.
 
-### Phase 2: Replay and Administration
+Phase 1 was completed in `light-4j` on 2026-08-26. The new `hmac-config` module
+loads and validates named profiles while retaining only environment-variable
+references in configuration. The new `hmac` module resolves those references
+into immutable, atomically replaceable runtime snapshots, verifies HMAC-SHA256
+against duplicate views of the exact pooled request buffers, uses constant-time
+signature comparison, and keeps secrets and authentication material out of
+string representations. A failed reload leaves the prior snapshot available to
+requests that already pinned it.
 
-- Add the asynchronous `WebhookReplayStore` SPI and bounded local provider.
-- Add an optional Redis provider using atomic reserve and compare-and-delete.
+`UnifiedPathPrefixAuth` and its generated schema now expose `hmacProfile`.
+Startup validation rejects unknown profiles, unsupported authentication-factor
+combinations, shadowed first-match rules, anonymous overlaps, and request
+injection configurations whose exact-body limit or pooled-buffer capacity is
+too small for an HMAC profile. Focused tests cover configuration failures,
+GitHub-compatible hex signatures, base64 signatures, active/previous key
+rotation, selector headers, replay identifiers, malformed and duplicate
+headers, empty and exact-boundary bodies, UTF-8 bytes, content encodings,
+oversize bodies, buffer-position preservation, runtime reload, and redaction.
+The replay store, replay administration, chain wiring, and Unified Security
+evidence consumption were completed in Phases 2 and 3.
+
+The structural HMAC-rule checks live in `UnifiedSecurityConfig`, so unsafe
+anonymous overlap, first-match shadowing, blank profiles, and unsupported factor
+combinations fail during Unified Security configuration loading even when the
+HMAC artifacts or `service.yml` bindings are absent.
+
+### Phase 2: Replay Service and Administration
+
+- Add the asynchronous `WebhookReplayStore` service interface and bounded local
+  implementation.
+- Supply a local implementation fragment for applications to copy into
+  `service.yml` and resolve it with `SingletonServiceFactory`.
+- Add an optional Redis implementation using atomic reserve and
+  compare-and-delete, selected by changing the `service.yml` binding and
+  restarting with the adapter artifact on the classpath.
 - Add the protected replay-removal admin handler.
-- Add concurrency, outage, capacity, release, and operator-removal tests.
+- Add binding, startup-failure, concurrency, outage, capacity, release, and
+  operator-removal tests.
+
+Phase 2 was completed in `light-4j` on 2026-08-26. The core `hmac` artifact now
+contains the asynchronous `WebhookReplayStore` contract, opaque owner-token
+reservations, one-way replay-key representations, safe operational summaries,
+and a bounded `LocalWebhookReplayStore`. The local implementation performs
+atomic insert-if-absent, tracks each reservation's TTL, never evicts an
+unexpired entry for capacity, fails closed when full, and uses owner-checked
+release so a stale completion cannot remove a newer reservation.
+
+`HmacRuntimeManager` resolves exactly one replay provider from
+`SingletonServiceFactory`, validates it, and pins the same singleton across
+`hmac.yml` reloads. Missing, duplicate, or invalid bindings fail runtime
+compilation without an implicit local fallback. The supplied
+`hmac-service.yml` fragment shows the default local binding; applications copy
+that entry into their `service.yml`.
+
+The optional `hmac-redis` artifact supplies `RedisWebhookReplayStore` without
+adding Redisson to core HMAC deployments. It uses atomic Redis scripts for
+reserve, owner-checked release, and operator removal, hashes the logical replay
+tuple before persistence, applies bounded connection and operation timeouts,
+and participates in the existing startup/shutdown hook lifecycle through one
+comma-separated `service.yml` binding. Redis failures complete exceptionally
+and are mapped by the HMAC chain to `503`; they never fall back to local state.
+
+The optional `HmacReplayAdminHandler` implements protected-route operation
+`POST /adm/hmac-replay/remove`, returns only `removed` and store `scope`, and
+adds safe audit fields without exposing selectors, delivery IDs, storage keys,
+or owner tokens. It is not present in the default handler chain; an application
+that enables it must wire the exact route behind its existing administrative
+authentication and authorization controls. The same handler works for local
+and distributed providers, allowing the controller to fan out local removals
+or issue one removal to a shared Redis store.
+
+Focused tests cover local and distributed reservation races, TTL and capacity,
+owner-checked release, process-local restart loss, distributed restart
+retention, missing/duplicate/invalid bindings, provider pinning across reload,
+Redis outage behavior, shared lifecycle binding, redacted representations, and
+audited operator removal. Phase 3 consumes that service through the pinned
+request runtime and owns request-chain admission and final-outcome release.
 
 ### Phase 3: Unified Security and Handler Integration
 
@@ -908,6 +1065,51 @@ maintenance branch.
   logging.
 - Add chain-misconfiguration and exact-forwarding integration tests.
 
+Phase 3 was completed in `light-4j` on 2026-08-26. `HmacHandler` now validates
+the pending result against the current first-match Unified Security rule,
+recomputes the buffered body length and SHA-256 fingerprint, and performs the
+atomic replay reservation through the request's pinned asynchronous store. It
+dispatches before awaiting the store, resumes on an Undertow worker, returns an
+empty local `200` for duplicates, and attaches an opaque final
+`HmacAuthenticationEvidence` only after admission. A completion listener keeps
+successful `2xx` reservations and schedules owner-checked release for all other
+final statuses without changing the original response when release fails.
+
+`UnifiedSecurityHandler` now requires matching HMAC evidence only when the
+selected rule has `hmacProfile`; its existing anonymous, Basic, JWT, SJWT, SWT,
+and API-key branches are otherwise unchanged. HMAC-only routes therefore need
+no Authorization or API-key header, while an HMAC-plus-JWT or HMAC-plus-API-key
+rule continues into the existing second-factor branch after evidence is
+accepted. Missing or mismatched evidence fails closed with `503`, and a body
+mutation after verification fails with `500` before reservation or downstream
+invocation.
+
+Startup wiring checks require `HmacRequestInterceptor` to be the first
+`RequestInterceptor`, reject overlap with built-in request-transformer paths,
+and require `HmacHandler` to be immediately before `UnifiedSecurityHandler`.
+Interceptor order is validated during startup because `service.yml` bindings
+are immutable for the running process. Full integration validation is memoized
+by the loaded configuration/runtime identities and reruns only after a relevant reload.
+Handler adjacency is validated against each materialized `handler.yml` path or
+default chain after disabled middleware has been removed. This uses the active
+`HandlerConfig` instance, including configurations selected through
+`Handler.setConfig(...)`, rather than reloading the default `handler.yml`.
+The supplied `hmac-service.yml` fragment includes both the interceptor and the
+default local replay-store bindings. Metrics cover verification duration, body
+size, bounded request outcomes, replay operations, and local entry count.
+Unexpected failures use a distinct `runtime_error` outcome and retain the
+throwable for diagnosis without logging authentication material.
+
+Focused real-Undertow tests prove asynchronous continuation, byte-exact UTF-8
+forwarding, duplicate suppression, `2xx` retention, non-`2xx` release and
+redelivery, release after an authentication rejection or thrown downstream
+handler, body-mutation rejection, missing interceptor/evidence failure, wrong
+interceptor order, and wrong adjacent-handler rejection before and after HMAC
+enablement. Unified Security integration tests prove that final evidence admits
+an HMAC-only route without legacy credentials, that a valid HMAC cannot replace
+a required JWT or API-key factor, and that missing HMAC evidence returns `503`
+before legacy credential processing.
+
 ### Phase 4: Qualification
 
 - Run affected `light-4j` module tests and existing Unified Security regression
@@ -917,14 +1119,56 @@ maintenance branch.
 - Complete one GitHub-to-Jenkins end-to-end and rotation exercise.
 - Reuse the same raw request fixtures in the Rust qualification suite.
 
+The Phase 4 local qualification implementation was completed in `light-4j` on
+2026-08-26. `scripts/run-hmac-phase4-gates.sh` runs the affected HMAC and
+Unified Security regression tests, including a real Undertow counting-callee
+matrix that requires actual HTTP/1.1 and HTTP/2 negotiation. Each protocol is
+exercised with fixed-length and unknown-length streaming request bodies; the
+callee observes the exact bytes once, and a replay never invokes it.
+
+The same gate starts a disposable Redis container by default, races two
+independent JVM processes against one logical replay key, requires exactly one
+`RESERVED` and one `DUPLICATE` outcome, then starts a third JVM and requires the
+reservation to remain `DUPLICATE`. `HMAC_PHASE4_REDIS_URL` can point the gate at
+an operator-supplied Redis deployment instead. Provider unit tests still use a
+deterministic in-memory backend; they are not presented as multi-instance
+Redis evidence.
+
+Before the multi-JVM race, the gate also runs a signed request through the real
+Undertow request-injection, HMAC verification, Redis reservation, and HMAC
+handler chain. It asserts that continuation after the asynchronous Redis
+reservation is off the Undertow I/O thread, preserves an application header,
+and suppresses a duplicate without invoking the callee.
+
+The disposable-container default is the portable `redis:7-alpine` image.
+Environments that require a registry mirror can set
+`HMAC_PHASE4_REDIS_IMAGE` without changing the gate.
+
+The language-neutral fixture
+`hmac/src/test/resources/qualification/hmac-webhook-v1.properties` stores the
+raw request body and public test secret as base64 plus the expected GitHub
+signature and header contract. Java validates this fixture in
+`HmacQualificationFixtureTest`; the Rust suite must consume this same versioned
+fixture contract when its HMAC implementation exists.
+
+The local gate does not claim the two external acceptance items. No Jenkins or
+GitHub webhook target is part of the local workspace deployment, and the
+companion `light-fabric` HMAC middleware remains a design rather than an
+executable Rust suite. Before release, run one real GitHub-to-Jenkins delivery,
+duplicate, non-`2xx` redelivery, and current/previous-secret rotation exercise,
+then run the version-1 fixture through the Rust suite. Record those environment
+results separately from the repeatable local gate.
+
 ## Implementation Readiness
 
-No remaining product decision blocks Phase 0 or the verification core. Replay
-retention, local fallback, duplicate response, failure release, operator
-redelivery, secret selection, rotation, and authentication composition all have
-defined behavior.
+No remaining product decision blocks the Java implementation. Replay retention,
+local fallback, duplicate response, failure release, operator redelivery,
+secret selection, rotation, and authentication composition all have defined
+behavior. The remaining release gates require external runtime evidence rather
+than another Java design decision.
 
 The Phase 0 Undertow proof is an engineering gate rather than a design question.
 The only non-blocking packaging choice is whether the optional Redis adapter is
-published from `light-4j` or next to reusable distributed providers in
-`light-session-4j`; the replay SPI and wire behavior are the same either way.
+published from `light-4j` or next to reusable distributed implementations in
+`light-session-4j`; the replay service contract, `service.yml` selection, and
+wire behavior are the same either way.
