@@ -182,6 +182,7 @@
     - [Light Bot](./support/github/light-bot.md)
     - [Internal Tools](./support/github/internal-tools.md)
 - [Security](./security.md)
+  - [Partner Checkmarx Assessment (2026-10-28)](./security/partner-checkmarx-assessment-2026-10-28.md)
   - [Known Vulnerabilities](./security/known-vulnerabilities.md)
     - [CVE-2026-28367](./security/known-vulnerabilities/CVE-2026-28367.md)
     - [CVE-2026-28368](./security/known-vulnerabilities/CVE-2026-28368.md)
