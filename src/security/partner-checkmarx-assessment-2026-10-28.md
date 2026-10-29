@@ -239,6 +239,162 @@ remaining memory-retention boundaries and partner rescan. A17 and deployment clo
 remain conditional; A20 remains scoped hardening. Original verdicts/counts below
 are historical and are not reclassified wholesale by these merges.
 
+<a id="a20-follow-up-2026-10-29"></a>
+
+## Portal, Lambda and HTTP-client A20 remediation follow-up — 2026-10-29
+
+The following five PRs are merged. GitHub merge metadata, merge-commit containment
+in the fetched target branches, and matching full trees between the final reviewed
+heads and merge commits were verified on 2026-10-29. The tree comparison also
+covers merges whose rewritten history does not contain the original review head.
+The light-4j A17/A18/A20 PRs #2829/#2830 remain recorded in the preceding follow-up.
+
+| Repository / tracking issue | Branch | Merged PR | Final reviewed head | Merge commit |
+| --- | --- | --- | --- | --- |
+| [light-portal #878](https://github.com/lightapi/light-portal/issues/878) | master | [#879](https://github.com/lightapi/light-portal/pull/879) | `5259bd1e905d10f744b75b9bdce1f6e64a6fd411` | `350a38e0790855a28975b64cd6baed0fa7cf9885` |
+| [light-lambda-native #191](https://github.com/networknt/light-lambda-native/issues/191) | master | [#192](https://github.com/networknt/light-lambda-native/pull/192) | `6d3b1fff3f9105e70b2331223330843b8f4bb64d` | `68fc8492ef54f7cc2a8e1d1782316064e75234e4` |
+| [light-lambda-native #191](https://github.com/networknt/light-lambda-native/issues/191) | 2.x | [#193](https://github.com/networknt/light-lambda-native/pull/193) | `75c712f90571e1851797b949fd8256d38ba740d2` | `1196b014492cf03b2e97c1e55c220ec0af4b0fec` |
+| [http-client #64](https://github.com/networknt/http-client/issues/64) | master | [#65](https://github.com/networknt/http-client/pull/65) | `cfe38fae68e04c8b85fe3fbe3c605909428e1a46` | `3d07a4c92d828ab1166c5da24a8078787e1acbff` |
+| [http-client #64](https://github.com/networknt/http-client/issues/64) | 2.x | [#66](https://github.com/networknt/http-client/pull/66) | `aa22a0e767d8fdab0529a5ca2da498115e5e7401` | `a6504d13c76fb019ceac70defc423505b221ed07` |
+
+### Light-portal — A20 / Excel rows 73 and 76
+
+MembershipProjectionRepairMain and EntityIdentityBackfillMain now acquire a direct,
+non-pooled JDBC connection instead of constructing Hikari pools that retain
+additional password references. Optional protected password files take precedence;
+nonblank invalid file settings fail without falling back, while absent/blank file
+settings retain the environment-password fallback. Reads are bounded, use strict
+UTF-8 with leading-BOM/trailing-newline handling, and support secret-file symlink
+rotation. Owned file byte/character buffers are cleared. POSIX permission warnings
+name only the input variable, and sanitized connection errors retain class names
+and validated SQL metadata without raw driver messages or duplicate logging.
+
+Connection acquisition has a 30-second caller deadline, adjustable with
+`MEMBERSHIP_REPAIR_DB_LOGIN_TIMEOUT_SECONDS` or
+`ENTITY_CREATION_DB_LOGIN_TIMEOUT_SECONDS`. Credentials remain owned by the worker until
+the driver finishes; Properties are then cleared and late connections are closed.
+An uncooperative driver can outlive the caller deadline and retain credentials in
+the meantime. JDBC password Strings, environment/configuration values and driver
+copies remain outside erasure guarantees. SQL, transaction/fencing rules, report
+formats and report/apply defaults are unchanged.
+
+Recorded final-head local validation: **28 focused tests passed**, zero failures,
+errors or skips, covering both CLI entry points with H2, file precedence/encoding/
+rotation, owned-buffer/Properties cleanup, timeout/late-connection handling and
+sanitized diagnostics. Pre-commit passed. These are not PostgreSQL production-driver
+or live repair/backfill results. Packaged adoption requires rebuilding the hybrid
+command/query images that include db-provider, rather than only replacing thin
+service jars. See the [merged operator guide](https://github.com/lightapi/light-portal/blob/350a38e0790855a28975b64cd6baed0fa7cf9885/doc/security/operator-jdbc-credentials.md).
+
+### Light-lambda-native — A20 / row 98; A25 / rows 90–97
+
+The A25 re-evaluation confirmed that the reported credential/password logging paths
+were already mitigated on both branch baselines; the new TRACE privacy test also
+passed against the original implementations. The source fix addresses A20 and adds
+regression protection for A25. Configured username and sanitized path diagnostics
+remain; this is scoped protection of submitted passwords/headers, not removal of
+all identity data from logs.
+
+Local Basic authentication avoids immutable decoded credential-pair/password
+Strings. Request-owned decoded/password bytes, comparison copies and temporary
+conversion buffers are cleared on returns and exceptions. Explicit encoder/decoder
+output arrays avoid discarded buffers during charset resizing. Unicode scheme
+matching, raw/encoded credentials, password colons, historical malformed-UTF-8
+replacement behavior, statuses and LDAP dispatch remain compatible. The existing
+LDAP API still requires an immutable password String; borrowed request headers,
+configuration credentials, provider copies and JVM state may retain secrets.
+
+Recorded final-head local validation: **34 focused tests passed on each branch**,
+zero failures, errors or skips; pre-commit passed. Tests observe cleanup through
+real middleware return/exception paths, use mocked LDAP, and check TRACE log
+messages, arguments, MDC, throwable chains and returned statuses for full encoded
+credentials and distinct password fragments. Negative controls caught parsing,
+normalization, cleanup and logging regressions. No live LDAP or native/AWS deployment
+qualification is established. Rebuild and distribute the native Lambda artifact
+for adoption. See the [merged Basic Auth guide](https://github.com/networknt/light-lambda-native/blob/68fc8492ef54f7cc2a8e1d1782316064e75234e4/doc/security/basic-auth-credentials.md).
+
+### HTTP-client — A20 / Excel rows 108–111
+
+The client-keystore, private-key, configured-truststore and default/JDK-truststore
+handoffs now clear owned char arrays in finally blocks, including provider errors.
+The cleanup uses JDK APIs directly and adds no new minimum provided-config version
+or PasswordChars dependency. Configuration/system-property precedence, required/null
+password behavior, TLS policy, trust-manager composition and SSLContext caching
+remain unchanged for the qualified JDK providers. Borrowed Strings and
+provider-internal copies can remain in memory.
+
+Early clearing assumes KeyStore.load and KeyManagerFactory.init consume or copy
+the caller's array before returning. Providers that retain that reference for
+later use would see zeros. PKCS11, FIPS, builder-based and other custom providers
+need provider-specific ownership/lifecycle qualification; no universal JCA ownership
+guarantee is claimed.
+
+Recorded final-head local validation: **34 focused tests passed on each branch**,
+zero failures, errors or skips: 13 TLS ownership/isolation tests and 21 existing
+OAuth logging regressions. Pre-commit passed. Checked-in disposable JKS fixtures
+remove the keytool subprocess requirement. Full-context tests observe all four
+copies with default plus configured trust, check both issuer contributions to the
+composite trust manager, and cover default-store failure. Isolated/same-thread
+execution, a system-properties lock and an AutoClose state guard protect global
+state, including an injected cleanup failure. A compilation probe with PasswordChars
+removed from a copied config jar passes for both repaired loaders and fails for
+the previous PR heads. See the [merged TLS ownership guide](https://github.com/networknt/http-client/blob/3d07a4c92d828ab1166c5da24a8078787e1acbff/doc/security/tls-password-buffers.md).
+
+These are verified source merges and recorded focused JVM results. They do not
+establish new remote-CI/full-suite/native/distribution qualification, partner
+artifact adoption or a rescan. Confirm deployed artifacts, rebuild requirements,
+secret sources and logging/memory controls, and qualify actual JDBC/LDAP/TLS
+providers. A20 remains scoped hardening and A25 remains mitigated in reviewed
+source; the original worksheet verdicts/counts and pinned source mappings below
+are retained as historical evidence.
+
+<a id="a28-follow-up-2026-10-29"></a>
+
+## Light-spa-4j A28 remediation follow-up — 2026-10-29
+
+For **A28 / Excel rows 117–119**, [light-spa-4j #188](https://github.com/networknt/light-spa-4j/issues/188)
+tracks the branch re-evaluation and regression protection. GitHub confirms both
+PRs merged on 2026-10-29:
+
+| Branch | Merged PR | Scope | Final reviewed head | Merge commit |
+| --- | --- | --- | --- | --- |
+| master | [#189](https://github.com/networknt/light-spa-4j/pull/189) | Regression tests and documentation; production source already mitigated | `d00260281168210d9ca2202fc9598de179448bd9` | `d4b1c0d3cd984272de85c91039d931ccb1d71b0a` |
+| 2.x | [#190](https://github.com/networknt/light-spa-4j/pull/190) | Remaining session logging sinks and rejection/callback handling | `694f9860956af0100dbf96f3cf8e0d35376f5dd0` | `277feab66218932d2e8518114a1957cc8454a03c` |
+
+The original mitigated verdict applies to the reviewed master baseline, not every
+branch. Re-evaluation found remaining JWT/CSRF diagnostics on 2.x. Its source fix
+removes those logs, redacts CSRF mismatch arguments, and removes the callback
+result/code/state and Facebook access-token logs identified during review.
+Configured status.yml entries are retained: CSRF mismatch ERR10039 defaults to
+HTTP 400, missing CSRF retains ERR10036, malformed tokens use ERR10000, and expired
+tokens use ERR10001. Key-resolution failures emit a fixed diagnostic with the
+exception class, without provider messages or causes. Microsoft-token key failures
+now return a logged 500 instead of the previous 401, deliberately matching the
+cookie path. Callback and renewal callers stop after failed cookie issuance.
+This does not backport master's broader trust/CSRF redesign.
+
+Recorded final-head local validation: **13 logging probes on master and 23 on
+2.x passed**. The selected affected reactors reported **151 tests on master and
+77 on 2.x**, zero failures/errors and one existing skip each. Two legacy Azure
+tests were explicitly excluded on 2.x because their fixtures name Microsoft
+endpoints. Tests pin error bodies and inspect messages, arguments, MDC, throwable
+chains, responses and escaped exceptions at TRACE. The 2.x probes exercise the
+real verifier's cache-hit path, and local TLS integration tests exercise actual
+authorization/exchange callbacks with rejected issued tokens. Logging-only
+negative controls preserve HTTP behavior and fail both handlers' successful-session
+probes on credential canaries. The earlier whole-handler restore experiment was
+confounded by status changes and is not evidence of 15 independent logging
+detections.
+
+The duplicated module-local harness remains intentionally documented. See the
+[master regression guide](https://github.com/networknt/light-spa-4j/blob/d4b1c0d3cd984272de85c91039d931ccb1d71b0a/docs/security/partner-checkmarx-a28.md)
+and [2.x remediation guide](https://github.com/networknt/light-spa-4j/blob/277feab66218932d2e8518114a1957cc8454a03c/docs/security/partner-checkmarx-a28.md).
+These source merges and recorded local results do not establish live identity-provider,
+production logging, full-suite/remote-CI or partner deployment qualification.
+Other callback/provider diagnostics remain outside the scoped assessment. Verify
+adopted artifacts and logging configuration before partner closure. Original
+worksheet counts and pinned appendix mappings remain historical evidence.
+
 ## HSTS configuration follow-up — 2026-10-28
 
 For **A02 / Excel row 3**, the original companion PRs, both `2.x` backports and the `master` fixture follow-up are merged:
@@ -481,9 +637,9 @@ Http2Client.loadDefaultTrustStore:1405–1444 uses the conventional cacerts defa
 
 **Hardening — Excel rows 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 73, 76, 98, 108, 109, 110, 111.**
 
-These rows predominantly identify real in-process secret retention, not a demonstrated remote exploit. At the initial assessment, server/client TLS loaders, MRAS, Salesforce, Basic authentication, config bootstrap and repair utilities held configured or request credentials as Strings, and AutoAESSaltDecryptor cached password/key material for reuse. The merged light-4j follow-up above removes base/Auto caches and clears owned temporary copies; the manual provider has an explicit bounded cache, and retained configuration/API credentials remain outside complete erasure guarantees. An attacker able to read heap dumps, debugger state or process memory may recover them. Scope heap dumps/diagnostics, restrict process and filesystem access, minimize credential lifetime and rotate credentials after suspected disclosure. Where APIs allow it, use owned char[] buffers and clear temporary copies/PBEKeySpec after use; converting an existing String to char[] does not erase the original and clearing shared config arrays can break runtime behavior.
+These rows predominantly identify real in-process secret retention, not a demonstrated remote exploit. At the initial assessment, server/client TLS loaders, MRAS, Salesforce, Basic authentication, config bootstrap and repair utilities held configured or request credentials as Strings, and AutoAESSaltDecryptor cached password/key material for reuse. The merged light-4j follow-up above removes base/Auto caches and clears owned temporary copies; the manual provider has an explicit bounded cache, and retained configuration/API credentials remain outside complete erasure guarantees. An attacker able to read heap dumps, debugger state or process memory may recover them. Scope heap dumps/diagnostics, restrict process and filesystem access, minimize credential lifetime and rotate credentials after suspected disclosure. Where APIs allow it, use owned char[] buffers and clear temporary copies/PBEKeySpec after use; converting an existing String to char[] does not erase the original and clearing shared config arrays can break runtime behavior. The [2026-10-29 follow-up](#a20-follow-up-2026-10-29) records the merged Portal (rows 73/76), Lambda (row 98) and HTTP-client (rows 108–111) hardening in addition to light-4j.
 
-Rows 56–59 now point to char[] fields in TlsConfig, so the literal claim that those fields are immutable Strings is stale; the arrays remain retained and unzeroed for configuration reuse. Several other scan lines have moved; MRAS credentials are now at 556–575, Salesforce certPassword at 226–250, DefaultConfigLoader truststorePassword at 574–588, User BasicAuth password at 176, Lambda password at 159. Treat this as low-priority memory exposure hardening subject to the threat model, not blanket false-positive suppression or proof that all secret retention can be eliminated.
+At the initial assessment, rows 56–59 pointed to char[] fields in TlsConfig, so the literal claim that those fields were immutable Strings was stale; those configuration arrays remain retained for reuse. Several scan lines had moved in that baseline: MRAS credentials were at 556–575, Salesforce certPassword at 226–250, DefaultConfigLoader truststorePassword at 574–588, User BasicAuth password at 176, and Lambda password at 159. The merged follow-ups above supersede these historical local-copy lifecycles, while borrowed configuration credentials remain retained. Treat this as low-priority memory exposure hardening subject to the threat model, not blanket false-positive suppression or proof that all secret retention can be eliminated.
 
 <a id="a21"></a>
 
@@ -525,7 +681,7 @@ At the initial assessment, neither oauth-kafka nor light-controller nor the name
 
 **Mitigated in current source — Excel rows 90, 91, 92, 93, 94, 95, 96, 97.**
 
-Current BasicAuthMiddleware.handleBasicAuth:146–200 no longer logs decoded credentials at the reported sinks. Failure messages and progress traces are fixed text; the path denial message removes CR/LF from requestPath. The scanner's duplicated Base64/substr source flows do not demonstrate password disclosure in this revision. Historical comments cannot establish what the partner runs. Verify its deployed revision and use synthetic canary credentials to assert they never appear in ERROR/DEBUG/TRACE logs before closing the original eight results. Username/path logging is a separate data-minimization consideration.
+At the initial assessment, BasicAuthMiddleware.handleBasicAuth:146–200 no longer logged decoded credentials at the reported sinks. Failure messages and progress traces are fixed text; the path denial message removes CR/LF from requestPath. The scanner's duplicated Base64/substr source flows do not demonstrate password disclosure in this revision. Historical comments cannot establish what the partner runs. Verify its deployed revision and use synthetic canary credentials to assert they never appear in ERROR/DEBUG/TRACE logs before closing the original eight results. Username/path logging is a separate data-minimization consideration. The [merged Lambda follow-up](#a20-follow-up-2026-10-29), tracking issue #191 and PRs #192/#193, confirms this mitigation on both branch baselines and adds TRACE canary coverage alongside the A20 buffer cleanup.
 
 <a id="a26"></a>
 
@@ -549,7 +705,15 @@ OauthHelper:670 traces the complete introspection body, which may include identi
 
 ### A28: SPA JWT log forging
 
-**Mitigated in current source — Excel rows 117, 118, 119.**
+**Mitigated in reviewed master source; merged 2.x remediation — Excel rows 117, 118, 119.**
+
+**Merged follow-up:** [master #189](https://github.com/networknt/light-spa-4j/pull/189)
+adds regression protection for the existing master mitigation;
+[2.x #190](https://github.com/networknt/light-spa-4j/pull/190) fixes the remaining
+legacy logging paths and preserves configured rejection codes. See the
+[A28 follow-up](#a28-follow-up-2026-10-29) for tracking issue #188, merge commits,
+branch-specific behavior and validation limits. The paragraph below describes the
+initial master baseline; it did not establish that 2.x was already mitigated.
 
 The current MsalTokenExchangeHandler and StatelessAuthHandler verify tokens through their configured trust providers and no longer contain the reported JWT/claim debug/trace messages around the old sinks. These scan line numbers now refer to different statements. The reported cookie-to-log path is not reproduced by current source inspection. This is a current-source mitigation, not evidence that the historical finding was false or that all logging in these classes is safe: other request-path, authorization-code/state or token-result logging deserves a separate review. Confirm the deployed artifact and exercise CR/LF-bearing rejected input with canary-only logs before closing.
 
@@ -566,7 +730,7 @@ The current MsalTokenExchangeHandler and StatelessAuthHandler verify tokens thro
 3. Adopt and deploy the merged HSTS configuration linked in the A02 follow-up where applicable, respecting the dedicated HTTPS ingress restriction (normal sidecar egress needs port 9080). Verify public HSTS using HTTPS response captures and effective application/edge configuration; cover normal, redirect, error and favicon responses and direct-origin access before partner closure.
 4. Deploy the merged A13/A14 browser fixes linked above. Verify session ownership, rendezvous peer admission and expiry/replay controls; address reconnect-ID URL logging through redaction and a reviewed backend protocol change where required. Confirm snapshot UUID validation; adopt the merged A15 safeguards and verify deployed filters, byte policy and remaining aggregate/driver resource boundaries.
 5. Obtain the partner scan SHA/artifacts for applicability and closure. For archived oauth-kafka and light-controller, first confirm whether any deployment still uses them and plan retirement or migration; legacy use still requires source/artifact assessment. Re-run the scan and focused regressions on repaired artifacts for maintained components; maintain result-specific evidence rather than category-wide suppressions.
-6. Review heap-retention items under a documented threat model, prioritizing long-lived master/private-key/DB secrets over public truststore defaults, hashes and ciphertext.
+6. Adopt the merged A20 hardening for light-4j, light-portal, light-lambda-native and http-client linked above, with the applicable hybrid/native rebuilds and provider-lifecycle checks. Review remaining heap retention under a documented threat model, prioritizing long-lived master/private-key/DB secrets over public truststore defaults, hashes and ciphertext.
 
 For partner closure, attach the source commit/artifact digest, exact result identifier, redacted effective configuration, focused test output and deployment verification. No real secrets or access tokens should be included. Infrastructure HSTS can satisfy a browser control even when a separate partner policy still requires application defense in depth. An inbound sanitizer cannot justify unrelated output, logging, deserialization or cryptographic findings.
 
