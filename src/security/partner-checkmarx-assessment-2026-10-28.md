@@ -32,7 +32,212 @@ The `light-gateway` fixes replace unsafe browser HTML rendering with text nodes;
 
 Merge commits: `light-gateway` master `122330692c8ff991b6cb9886d9221cd932320895`, 2.x `3f299c82d3eca1d8657bc97e5281e99e5a9278cc`; `http-client` master `fb95cb472b6ce382679efa344037e2ad2cae9a46`, 2.x `35d1364ea01fb9ac0779d0bc3b68b56d312ac356`.
 
-The original assessment verdicts, counts and source baseline below are retained as historical evidence. Merged source remediation does not establish that the partner has deployed the repaired artifacts or rerun its scan; those remain deployment/partner closure checks. The separate MRAS logging and base-decryptor concerns are not resolved by these four PRs.
+The original assessment verdicts, counts and source baseline below are retained as historical evidence. Merged source remediation does not establish that the partner has deployed the repaired artifacts or rerun its scan; those remain deployment/partner closure checks. The separate MRAS logging and base-decryptor concerns are not resolved by these four PRs; the light-4j follow-up below now records the MRAS fix and the retained base-password waiver.
+
+## Portal-view remediation follow-up — 2026-10-28
+
+[portal-view #939](https://github.com/lightapi/portal-view/pull/939), tracking
+[issue #938](https://github.com/lightapi/portal-view/issues/938), is merged into
+`master` at `48a7e027aa4fa778a8a05926301a1056ec92e088`. It addresses all six
+portal-view rows that were not classified as false positives:
+
+| Assessment | Excel rows | Merged source remediation |
+| --- | --- | --- |
+| [A03](#a03) | 4–5 | Null-prototype dictionaries protect regular/detail comparison construction. Tests verify dangerous keys remain own data properties through worker transfer; null prototypes themselves do not survive structured clone. |
+| [A09](#a09) | 24 | Chat message IDs require Web Crypto, using native UUIDs or getRandomValues. Missing crypto preserves the draft and displays an error, including during expired-session renewal. |
+| [A09](#a09) | 26 | JSON-RPC correlation IDs use a per-page sequence without Math.random or a Web Crypto dependency. These are not credentials or idempotency keys; explicit caller IDs are preserved. |
+| [A09](#a09) | 27 | Knowledge command idempotency keys require the shared cryptographic helper; missing crypto rejects before dispatch. Ordinary updates do not request an idempotency key. |
+| [A10](#a10) | 25 | Repository history establishes that the old ProfileMenu generator protected OAuth state. Sign-in now uses the shared cryptographic helper, and the menu shows an accessible, retryable failure. Integration tests exercise the real state storage/redirect flow. |
+
+Local validation on the reviewed head `7a8a8cd`: **1,153 tests in 166 files
+passed**, as did the production build, lint (zero errors, 215 baseline warnings)
+and controller typecheck. Full-repository TypeScript checking still reports 172
+baseline errors, with no new diagnostics after accounting for shifted line
+numbers. The GitHub `portal-control-plane` check passed on that head before merge.
+The [repository follow-up](https://github.com/lightapi/portal-view/blob/48a7e027aa4fa778a8a05926301a1056ec92e088/docs/security/partner-checkmarx-938.md)
+records scope, historical evidence and deployment acceptance criteria.
+
+These are merged frontend changes and regression evidence. They do not establish
+partner deployment, live OAuth/server state validation or backend cross-owner
+idempotency isolation. The exact partner scan revision and rescan remain
+outstanding. Other UUID call sites are outside this migration. The initial
+assessment verdicts/counts below remain historical; row 25's original uncertainty
+about purpose is now resolved by repository history, without reclassifying the
+historical weak OAuth state generator as a false positive.
+
+## Gateway A13/A14 remediation follow-up — 2026-10-28
+
+Both remaining non-false-positive light-gateway findings after A12 have merged
+browser-source fixes:
+
+| Branch | Merged PR | Merge commit |
+| --- | --- | --- |
+| master | [#262](https://github.com/networknt/light-gateway/pull/262) | `dc8347a4a6f635d7fdd387d5c10bfcbfbdf68cc0` |
+| 2.x | [#263](https://github.com/networknt/light-gateway/pull/263) | `b63ec10570c0bf47311813102e00dcaed053182d` |
+
+**A13 / Excel row 36:** the canonical AI page and its embedded Kubernetes ConfigMap
+copy keep reconnect IDs in page memory, reuse them only for the same selected
+user/model, and no longer display them. Both storage types receive best-effort
+cleanup of the legacy sessionId key when accessible; blocked storage cannot be
+erased until a later load with access. Reconnect resets the assistant bubble,
+disables sending until OPEN and ignores replaced-socket events. Reload starts a
+new conversation. These client-side selection checks are not owner authentication.
+
+**A14 / Excel row 37:** rendezvous channels use native crypto.randomUUID or
+UUID-v4 bytes from getRandomValues; missing/failing crypto reports an error before
+socket/callback creation. The same encoded channel is used for both requests,
+and direct channel/URL logging is removed. Replacing a connection closes the old
+socket, aborts its callback request and ignores late events or callback results.
+Callback abort cannot guarantee that the backend stopped processing a request.
+
+Local validation passed on both reviewed heads (`3d2bcec` / `6b7c869`): **7 tests,
+including 111 browser checks across six runs and a canonical/ConfigMap parity
+check**. Tests cover both AI delivery paths with and without storage, asynchronous
+close ordering, stream separation, send-state guards, late callbacks, cryptographic
+channel generation and existing XSS protections. Negative controls reject the
+previous affected PR versions. Browser regressions and pre-commit passed on both
+GitHub PR heads. At this update, master's Java source-build check is still running;
+no completed master build/distribution result is claimed. Java code was unchanged
+and local Maven suites were not run for these browser-only changes.
+
+**Residual protocol/deployment work:** the reconnect session ID still travels in
+the existing URL query and can enter gateway/proxy access logs. Memory-only storage
+does not fix that exposure. Redact sensitive values; moving resume credentials off
+the URL requires a coordinated backend protocol change. Same-origin script
+compromise can still access page memory. Verify authenticated session ownership,
+peer admission, expiry/replay enforcement and HTTPS/WSS against the deployed
+backend, then rerun the partner scan. A13/A14 remain conditional for deployment
+closure; neither browser tests nor random channel IDs establish those controls.
+See the [merged security guide](https://github.com/networknt/light-gateway/blob/dc8347a4a6f635d7fdd387d5c10bfcbfbdf68cc0/docs/security/chat-demo-session-channel.md).
+
+## JDBC session A15 remediation follow-up — 2026-10-28
+
+The re-evaluation of **A15 / Excel row 38** confirmed that the default allowlist
+blocks unlisted deserialization hooks, but found a resource-limit gap: a serialized
+2 MiB string (2,097,165 bytes) and roughly 4 MiB string array bypassed the intended
+1 MiB filter streamBytes check. The same string was accepted through the repository
+conversion path. This demonstrated a missing byte bound, not deployed RCE or DoS.
+
+Both source-fix PRs are merged:
+
+| Branch | Merged PR | Merge commit |
+| --- | --- | --- |
+| master | [#68](https://github.com/networknt/light-session-4j/pull/68) | `6be0e0c92da1b11e0e6bcc381e0e88e0b75f431a` |
+| 2.x | [#69](https://github.com/networknt/light-session-4j/pull/69) | `852eaf3f7de51100121e2f85bb195323c5f46709` |
+
+The reader now pre-validates at most limit + 1 serialized bytes before constructing
+ObjectInputStream; the converter also bounds writes. The shared default is 1 MiB
+per attribute, configurable at instance construction using
+`light.session.jdbc.serialization.maxAttributeBytes`. Invalid settings fail
+construction; raising the limit requires a reviewed migration and heap budget.
+The class allowlist and depth/reference/array filters remain intact.
+
+JDBC loading uses getBinaryStream and hydrates without writes or reserialization.
+A rejected attribute excludes its entire session, while healthy sessions remain
+available in getSessions(); findById returns null for that rejected session.
+Close-only stream errors do not discard successfully decoded data. Saves preflight
+pending attributes before SQL, propagate failure, attempt explicit rollback and
+retain pending edits until correction/retry. Flags clear after confirmed commit;
+a failed commit can still have an uncertain database outcome requiring reconciliation.
+
+Each branch passed the local full suite: **37 tests, zero failures/errors, two
+existing skips**, including public H2 save/load/rollback regressions. All five new
+public repository tests fail on the prior implementation. Pre-commit passed on
+both reviewed PR heads (`39f2e68` / `b2ad19b`); no remote Maven test job was listed.
+See the [merged JDBC guide](https://github.com/networknt/light-session-4j/blob/6be0e0c92da1b11e0e6bcc381e0e88e0b75f431a/jdbc-manager/README.md)
+for compatibility, failure semantics and migration instructions.
+
+**Remaining boundaries:** this is a per-attribute limit, not an attribute-count,
+per-session aggregate/decoded-heap or listing-wide budget. getSessions() materializes
+valid results and write preflight buffers pending attributes. JDBC drivers may
+buffer columns internally; PostgreSQL/Oracle production-driver behavior was not
+qualified by H2 tests. Review database constraints, allowlist/filter-factory
+settings, deployed request-error handling and actual artifacts, then rerun the
+partner scan. Merged source safeguards do not establish deployment closure or
+complete resource-exhaustion protection. Initial assessment counts remain historical.
+
+## Light-4j A17/A18/A20 remediation follow-up — 2026-10-28
+
+Both PRs tracking [light-4j #2828](https://github.com/networknt/light-4j/issues/2828)
+are merged. GitHub merge metadata and containment of the final reviewed heads
+in the fetched target branches were verified after merge:
+
+| Branch | Merged PR | Final reviewed head | Merge commit |
+| --- | --- | --- | --- |
+| master | [#2829](https://github.com/networknt/light-4j/pull/2829) | `174cbe5cfb943e99b7a3f2edfbbaed0908598847` | `62b06f43d7ae505e68b8cae5ebf60b70946443f8` |
+| 2.x | [#2830](https://github.com/networknt/light-4j/pull/2830) | `2b77619bc6831dc0a4ca039ec4995b68bff1f588` | `05a86a5d9510f704168d58f3817d9a2514ae178c` |
+
+**A17 / Excel row 43:** the decryptor reads the salt from ciphertext; the master
+password is not the salt. Source inspection of the current light-encryptor producer
+found fresh random 16-byte salts and 12-byte GCM nonces for each encryption. The
+reader now validates these lengths, hex fields and a minimum authentication-tag
+length before requesting a password or running PBKDF2. This qualifies the original
+scanner interpretation; it does not establish how historical/deployed ciphertext
+was generated. Inventory the actual producing version and salt reuse before closure.
+
+**A18 / Excel row 45:** both branches reject three-part zero-IV CBC values before
+password acquisition. There is no legacy opt-in or warn-first transition on 2.x.
+Users must re-encrypt those secrets to standard four-part AES-GCM before upgrading;
+nonstandard four-part lengths also require regeneration with the supported producer.
+YAML failures report source line/column and the config loader supplies the filename,
+without echoing the value. Only a three-part rejection advises legacy re-encryption;
+wrong-password/tampered GCM failures retain general password/format guidance.
+Standard GCM values retain the PBKDF2-HMAC-SHA256 parameters (65,536 iterations,
+256-bit key) and 128-bit authentication tag. The legacy reader is removed in source;
+partner deployment and migration remain unverified.
+
+**A20 / light-4j Excel rows 47–68:** scoped hardening removes the base/Auto derived-key
+cache and Auto master-password array cache, clears owned temporary password/PBE/key/
+plaintext buffers, and clears temporary TLS password copies across the reviewed
+server, client, MRAS, Salesforce, bootstrap, fingerprint and JwtIssuer paths.
+JwtIssuer also closes the keystore stream. Arrays returned by downstream password
+providers remain borrowed unless explicitly registered as newly owned; shared
+configuration arrays are preserved. TokenKeyStoreManager already accepts borrowed
+char[] inputs and makes no toCharArray copies; an ownership test protects that
+contract. These changes do not cover A20 rows in other repositories or eliminate
+immutable configuration/request Strings, provider-internal keys or retained
+TlsConfig/authentication credentials.
+
+The interactive Manual provider retains at most 32 successfully authenticated
+derived keys per instance with a five-minute reuse window, avoiding a prompt for
+every repeat decrypt. Failed authentication does not populate the cache. Expiration
+is lazy on the next key acquisition; idle keys can remain beyond five minutes.
+Eviction and explicit close clear cache-owned key bytes. Applications must arrange
+close at the end of the manual configuration session; use a new instance after a
+master-password change. Base/Auto deliberately repeat PBKDF2 instead of retaining
+keys. A local Java 25.0.3 repeated-value probe measured about 10.69 ms/decrypt versus
+0.073 ms with the old warm cache; this is a measured cost, not a capacity qualification.
+
+The additional **MRAS password-prefix logging** concern is fixed in these PRs.
+TRACE no longer logs fragments, and tests exercise actual key/trust-store loading,
+success/failure paths, short passwords and canary checks over log messages,
+arguments, throwable proxies and MDC.
+
+**Validation:** the expanded focused suite passed on both review heads
+(`ff11492` / `135594f`): 35 tests, zero failures/errors, one existing disabled test.
+Clean affected-module/dependency reactors passed 969 tests on master and 921 on 2.x,
+with zero failures/errors and 53 skips each. Four client classes were explicitly
+excluded after the original unrestricted run stalled; these are selected reactor
+results, not full-suite qualification. Later diagnostic tests passed (two per branch),
+and all 18 tests affected by the final Sonar cleanup passed on each final head.
+The broader reactor was not rerun for those diagnostic/test-structure/comment changes.
+Final-head SonarCloud analyses reported zero issues and passed quality gates on both
+PRs; pre-commit also passed. This follow-up does not claim completed final-head
+source-build/native-binding CI or deployed/partner qualification.
+
+**Accepted residual concern:** the public base-decryptor password default remains
+by explicit compatibility waiver in #2828. It is unsuitable as a production master
+secret. Password-provider selection and the Auto JUnit fallback remain unchanged;
+production should use an approved runtime-secret provider and re-encrypt any values
+protected with the public default. The measured PBKDF2 cost is also retained and
+documented, rather than hidden by a persistent base/Auto key cache.
+
+See the [merged migration guide](https://github.com/networknt/light-4j/blob/62b06f43d7ae505e68b8cae5ebf60b70946443f8/decryptor/MIGRATION.md)
+for both branches' format cutoff, credential ownership and manual-cache lifecycle.
+Verify the configured decryptor, actual ciphertext inventory, deployed artifacts,
+remaining memory-retention boundaries and partner rescan. A17 and deployment closure
+remain conditional; A20 remains scoped hardening. Original verdicts/counts below
+are historical and are not reclassified wholesale by these merges.
 
 ## HSTS configuration follow-up — 2026-10-28
 
@@ -42,7 +247,6 @@ For **A02 / Excel row 3**, the original companion PRs, both `2.x` backports and 
 | --- | --- | --- | --- | --- |
 | light-rest-4j | master | [#452](https://github.com/networknt/light-rest-4j/pull/452) | Consuming-application HSTS guide and isolated configuration example; no policy hard-coded in FaviconHandler. | `4f865e54c11fa2b150ebdad7db8db050ab1e03f8` |
 | http-sidecar | master | [#141](https://github.com/networknt/http-sidecar/pull/141) | Header first in default/admin chains and seven direct routes; opt-in late response policy prevents backend headers overriding HSTS. | `f54c5c25554bef38df80a353d4f9be34289ccca2` |
-
 | http-sidecar | 2.x | [#142](https://github.com/networknt/http-sidecar/pull/142) | Backport of #141, including atomic fixture ready-file publication and listener lookup by TLS state. | `f683a2f212db4e69ff1cd11f7ea7bb710a271148` |
 | light-rest-4j | 2.x | [#453](https://github.com/networknt/light-rest-4j/pull/453) | Backport of #452 using the 2.x YAML API; companion documentation links pinned to an existing reviewed commit. | `c16ff27f7418b498d9e6888013b0573ece78703c` |
 | http-sidecar | master | [#143](https://github.com/networknt/http-sidecar/pull/143) | Matching fixture corrections: atomic ready-file publication and no dependence on Undertow listener order; production policy unchanged. | `38c9e940cf7bb4b70c337760a264322328b2abed` |
@@ -66,7 +270,7 @@ The repository owner has archived `oauth-kafka` and `light-controller`. GitHub a
 
 The original scan findings and row mappings are retained for audit. Archiving is not a security patch or evidence that a finding is a false positive, and it does not establish that existing deployments have stopped using these components. For partner disposition, record the archived status and confirm whether the affected artifacts remain in use. Retire or migrate any remaining use to a maintained component; if legacy use continues, obtain the scanned source/artifact and assess the findings for that deployment. No replacement component, deployment retirement, vulnerability fix or technical closure has been verified by this archive update.
 
-These entries refer to the spreadsheet findings, not to newly opened or closed GitHub security issues. The 18 unresolved technical assessments still comprise these 17 archived-repository findings plus the historical ProfileMenu finding in row 25.
+These entries refer to the spreadsheet findings, not to newly opened or closed GitHub security issues. The original 18 unresolved assessments comprised these 17 archived-repository findings plus the historical ProfileMenu finding in row 25; the portal-view follow-up above now establishes the historical generator's OAuth-state purpose and records current source remediation.
 
 ## Evidence baseline
 
@@ -113,6 +317,8 @@ This handler does not set HSTS itself, but that does not establish the externall
 ### A03: Snapshot dictionary prototype mutation
 
 **Conditional — Excel rows 4, 5.**
+
+**Merged follow-up:** [portal-view #939](https://github.com/lightapi/portal-view/pull/939) removes the unsafe construction primitive with null-prototype cell dictionaries and worker-transfer regressions. The paragraph below describes the initial source baseline; deployment/partner verification remains outstanding.
 
 `snapshotComparison.ts:40–56` really assigns into ordinary `{}` dictionaries with `cells[snapshot.snapshotId]`. A synthetic ID `__proto__` with an object entry changes that dictionary's prototype; this does not automatically mutate global Object.prototype. The production API has a significant guard: `ConfigSnapshotValuesHandlerSupport:53–54` parses all requested IDs as UUIDs, and `ConfigServerQueryPersistenceImpl.loadSnapshotMetadata:812–814` reads snapshot IDs as UUIDs from the database. Those IDs cannot be `__proto__`. Thus the assignment is a real unsafe primitive, but exploitability via the supported API is not established. Worker messages originate from the application, not an arbitrary cross-origin postMessage endpoint. Close as not exploitable only after confirming the deployed producer has these UUID guarantees and no alternate unvalidated producer. A null-prototype dictionary or Map is a small future hardening option; validate IDs at any alternate entry point.
 
@@ -162,6 +368,8 @@ At `PromotionExport.tsx:405–413`, `href` receives `URL.createObjectURL` for a 
 
 **Hardening — Excel rows 24, 26, 27.**
 
+**Merged follow-up:** [portal-view #939](https://github.com/lightapi/portal-view/pull/939) removes weak fallbacks: chat/idempotency IDs use Web Crypto, while JSON-RPC correlation uses a per-page sequence. The paragraph below describes the initial source baseline. Backend owner/operation scoping still requires deployment verification.
+
 `codingRequest.ts:11–16` prefers crypto.randomUUID, then getRandomValues, with a Math.random fallback for client message IDs. `fetchClient.ts:46` uses the fallback for JSON-RPC request IDs. `knowledgeApi.ts:41–45` uses it for idempotency keys. These values correlate requests or deduplicate commands; the reviewed clients do not use them as credentials. Predictability alone does not prove authentication bypass. Use Web Crypto consistently and remove weak fallbacks where practical. Verify server idempotency keys are scoped to authenticated owner/operation and cannot expose another user's response; collision or cross-owner reuse is a separate risk that these source lines alone do not prove.
 
 <a id="a10"></a>
@@ -170,7 +378,7 @@ At `PromotionExport.tsx:405–413`, `href` receives `URL.createObjectURL` for a 
 
 **Unresolved — Excel rows 25.**
 
-The current ProfileMenu delegates login to `signIn` and contains no Math.random call. The spreadsheet does not include the scanned source or revision, so the original purpose cannot be established. Do not label a historical OAuth state/nonce generator a false positive based on its removal. Obtain the scanned function and verify whether randomness protected OAuth state, PKCE, or merely a correlation ID; security tokens require a cryptographic generator and server validation.
+At the initial assessment, ProfileMenu delegated to `signIn` and had no Math.random call; the scanned revision was unavailable, leaving the historical purpose unresolved. Follow-up history inspection establishes that commit `c14f56b` introduced Math.random for OAuth state, `d239afd` moved it to the shared sign-in helper, and `7f200a3` replaced it with crypto.randomUUID. The merged [portal-view #939](https://github.com/lightapi/portal-view/pull/939) now uses the shared secureRandomUUID helper, including its cryptographic byte fallback, and adds real menu/sign-in regressions and a visible retryable failure. The historical purpose is resolved and current source is remediated; this is not a historical false positive. The partner's exact scan revision, deployed artifact and live OAuth/server validation remain unverified.
 
 <a id="a11"></a>
 
@@ -196,6 +404,8 @@ Both `config/llmchat-rendezvous/public/index.html:155` and `config/llmchat-gatew
 
 **Conditional — Excel rows 36.**
 
+**Merged follow-up:** [master #262](https://github.com/networknt/light-gateway/pull/262) and [2.x #263](https://github.com/networknt/light-gateway/pull/263) remove browser persistence from both the canonical and Kubernetes AI pages. The initial-baseline analysis below is retained; the reconnect URL exposure and backend/deployment checks remain outstanding.
+
 `ai-gateway/public/index.html:61–66` stores json.sessionId in sessionStorage and later sends it as a reconnect parameter. A session ID used only as an owner-authorized conversation identifier is not automatically a bearer credential; sessionStorage is tab-scoped but readable by same-origin JavaScript. If possession authorizes reconnection, XSS or script compromise can disclose the capability and the finding is real. Confirm backend ownership checks, expiry and replay behavior before closing; do not claim browser storage is inherently secure or move an actual authentication secret to localStorage.
 
 <a id="a14"></a>
@@ -204,15 +414,34 @@ Both `config/llmchat-rendezvous/public/index.html:155` and `config/llmchat-gatew
 
 **Conditional — Excel rows 37.**
 
+**Merged follow-up:** [master #262](https://github.com/networknt/light-gateway/pull/262) and [2.x #263](https://github.com/networknt/light-gateway/pull/263) replace Math.random with Web Crypto and guard connection/callback lifecycle. The initial-baseline analysis below is retained; authenticated peer admission, ownership and expiry still need deployment verification.
+
 The demo's generateUUID uses Math.random for channelId and puts it in `/chat` and `/connect`. This has a stronger security implication than a JSON-RPC ID: the adjacent `light-websocket-4j` WebSocketRendezvousHandler.onConnect pairs peers through a shared CHANNELS map keyed by channelId, with backend role inferred from the configured path. That method does not itself prove ownership binding. If deployed admission relies on channel secrecy, weak generation is a real security defect. Generate with Web Crypto and authenticate/authorize both peers with owner binding and expiry. Obtain the actual Gateway chain and backend `/connect` authorization before asserting hijacking is reachable; no live exploit was attempted.
 
 <a id="a15"></a>
 
 ### A15: JDBC session deserialization
 
-**Mitigated in current source — Excel rows 38.**
+**Initial assessment: Mitigated in current source — Excel row 38. Reassessment qualified that verdict; source byte-limit fixes are now merged.**
 
-The database bytes still reach ObjectInputStream.readObject, but current `DefaultDeserializer.deserialize:101–104` first installs a class allowlist and graph limits: depth 20, references 10,000, array length 100,000 and stream bytes 1,048,576. Unknown classes are rejected. This is a substantive control the scanner's sink match misses, not evidence that arbitrary deserialization is safe. Custom allowedClasses/allowedPackages properties expand the trust boundary, and custom converters can bypass this default; inspect deployed settings and preserve least-privilege DB writes. See [Oracle ObjectInputFilter](https://docs.oracle.com/en/java/javase/15/docs/api/java.base/java/io/ObjectInputFilter.html). For an older unfiltered revision, an attacker able to alter serialized attributes plus an available gadget can make this a real vulnerability. Require a deployed-version check and rejection tests before closing the historical result.
+At the original pinned revision, database bytes reached ObjectInputStream.readObject
+through a default class allowlist and graph limits (depth 20, references 10,000,
+array length 100,000). Tests confirmed unlisted readObject classes were rejected
+before their hooks ran. However, the filter's streamBytes check was not a hard
+1 MiB bound: concretely encoded strings do not invoke the filter, and larger string
+payloads were accepted. See [Oracle ObjectInputStream filtering](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/io/ObjectInputStream.html#setObjectInputFilter(java.io.ObjectInputFilter)).
+
+Merged [master #68](https://github.com/networknt/light-session-4j/pull/68) and
+[2.x #69](https://github.com/networknt/light-session-4j/pull/69) add an independent
+serialized-byte bound, bounded JDBC consumption, observable transactional save
+failures and isolation of invalid sessions during loading. See the A15 follow-up
+above for exact commits, validation and migration impact. The merged default
+class/byte controls are substantive mitigation, not proof that arbitrary Java
+deserialization is safe. Aggregate limits, driver buffering and deployed ownership/
+database-write boundaries still require review. Configured allowedClasses and
+allowedPackages expand the trust boundary. Verify the deployed artifact/settings
+and partner rescan before closure; the older unfiltered revision can be vulnerable
+when an attacker can alter serialized attributes and a usable gadget is present.
 
 <a id="a16"></a>
 
@@ -228,7 +457,7 @@ SOAP PASSWORD_TYPE and DEFAULT_PASSWORD_TYPE are a configuration-field name and 
 
 **Conditional — Excel rows 43.**
 
-AutoAESSaltDecryptor supplies the password, not the salt. AESSaltDecryptor.getSecret takes salt bytes from the CRYPT value's salt field, and derives a key with PBKDF2WithHmacSHA256. A salt is public and need not be secret or unpredictable after generation; it should be unique and generated appropriately. The reported password-to-generateSecret flow does not establish a fixed salt. Audit the producing encryptor and actual ciphertext inventory for reused/static salts before closure. Do not publish decrypted values or production secrets as evidence.
+AutoAESSaltDecryptor supplies the password, not the salt. AESSaltDecryptor.getSecret takes salt bytes from the CRYPT value's salt field, and derives a key with PBKDF2WithHmacSHA256. A salt is public and need not be secret or unpredictable after generation; it should be unique and generated appropriately. The reported password-to-generateSecret flow does not establish a fixed salt. The merged light-4j follow-up above records current producer inspection and reader validation. Audit the actual producing revision and ciphertext inventory for reused/static salts before closure. Do not publish decrypted values or production secrets as evidence.
 
 <a id="a18"></a>
 
@@ -236,7 +465,7 @@ AutoAESSaltDecryptor supplies the password, not the salt. AESSaltDecryptor.getSe
 
 **Conditional — Excel rows 45.**
 
-Current AESSaltDecryptor supports AES-GCM for four-part values, but decryptLegacyCbc:68–72 retains AES/CBC/PKCS5Padding with an all-zero IV for three-part values. This is a real legacy cryptographic weakness when that format is still used: deterministic CBC leaks equality under the same key and does not authenticate ciphertext. It is not proof that AES itself is broken or that a remotely usable padding oracle exists. Inventory formats without disclosing plaintext, regenerate legacy secrets using the current GCM encryptor, and plan an explicit compatibility cutoff. Keeping a legacy reader does not prove deployed values have migrated.
+At the initial assessment, AESSaltDecryptor supported AES-GCM for four-part values, but decryptLegacyCbc:68–72 retained AES/CBC/PKCS5Padding with an all-zero IV for three-part values. This is a real legacy cryptographic weakness when that format is still used: deterministic CBC leaks equality under the same key and does not authenticate ciphertext. It is not proof that AES itself is broken or that a remotely usable padding oracle exists. Inventory formats without disclosing plaintext, regenerate legacy secrets using the current GCM encryptor, and plan an explicit compatibility cutoff. Keeping a legacy reader does not prove deployed values have migrated. The merged light-4j follow-up above removes that reader on both branches and requires re-encryption before upgrade; deployment migration is still unverified.
 
 <a id="a19"></a>
 
@@ -252,7 +481,7 @@ Http2Client.loadDefaultTrustStore:1405–1444 uses the conventional cacerts defa
 
 **Hardening — Excel rows 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 73, 76, 98, 108, 109, 110, 111.**
 
-These rows predominantly identify real in-process secret retention, not a demonstrated remote exploit. Server/client TLS loaders, MRAS, Salesforce, Basic authentication, config bootstrap and repair utilities hold configured or request credentials as Strings; AutoAESSaltDecryptor caches a char[] and derived keys for reuse. An attacker able to read heap dumps, debugger state or process memory may recover them. Scope heap dumps/diagnostics, restrict process and filesystem access, minimize credential lifetime and rotate credentials after suspected disclosure. Where APIs allow it, use owned char[] buffers and clear temporary copies/PBEKeySpec after use; converting an existing String to char[] does not erase the original and clearing shared config arrays can break runtime behavior.
+These rows predominantly identify real in-process secret retention, not a demonstrated remote exploit. At the initial assessment, server/client TLS loaders, MRAS, Salesforce, Basic authentication, config bootstrap and repair utilities held configured or request credentials as Strings, and AutoAESSaltDecryptor cached password/key material for reuse. The merged light-4j follow-up above removes base/Auto caches and clears owned temporary copies; the manual provider has an explicit bounded cache, and retained configuration/API credentials remain outside complete erasure guarantees. An attacker able to read heap dumps, debugger state or process memory may recover them. Scope heap dumps/diagnostics, restrict process and filesystem access, minimize credential lifetime and rotate credentials after suspected disclosure. Where APIs allow it, use owned char[] buffers and clear temporary copies/PBEKeySpec after use; converting an existing String to char[] does not erase the original and clearing shared config arrays can break runtime behavior.
 
 Rows 56–59 now point to char[] fields in TlsConfig, so the literal claim that those fields are immutable Strings is stale; the arrays remain retained and unzeroed for configuration reuse. Several other scan lines have moved; MRAS credentials are now at 556–575, Salesforce certPassword at 226–250, DefaultConfigLoader truststorePassword at 574–588, User BasicAuth password at 176, Lambda password at 159. Treat this as low-priority memory exposure hardening subject to the threat model, not blanket false-positive suppression or proof that all secret retention can be eliminated.
 
@@ -326,16 +555,16 @@ The current MsalTokenExchangeHandler and StatelessAuthHandler verify tokens thro
 
 ## Additional concern found during review
 
-**Fixed default in the base decryptor:** `light-4j/decryptor/.../AESSaltDecryptor.java:getPassword` returns a literal default password (current lines 140–141). Unlike the AutoAESSaltDecryptor test fallback in row 44, direct production use of this base implementation provides no deployment-specific master secret. Anyone who obtains ciphertext and knows the public default can derive its key. Confirm the configured decryptor class before closure; use an approved runtime-secret implementation such as AutoAESSaltDecryptor and re-encrypt affected values. This is an additional root cause, not an extra row in the 118-row counts.
+**Fixed default in the base decryptor:** `light-4j/decryptor/.../AESSaltDecryptor.java:getPassword` returns a literal default password. This remains in the merged light-4j source by the explicit compatibility waiver in #2828; it is not fixed by the AES-GCM format cutoff. Unlike the AutoAESSaltDecryptor test fallback in row 44, direct production use of this base implementation provides no deployment-specific master secret. Anyone who obtains ciphertext and knows the public default can derive its key. Confirm the configured decryptor class before closure; use an approved runtime-secret implementation such as AutoAESSaltDecryptor and re-encrypt affected values. This is an additional root cause, not an extra row in the 118-row counts.
 
-**MRAS partial secret logging:** MrasHandler current lines 558 and 576 trace the first four characters of keystore/key/truststore passwords. This is a real disclosure when TRACE is enabled, beyond the heap-retention category reported in rows 51–53. Remove secret fragments from logs; substring truncation is not masking. Also avoid using this trace path with short passwords because substring can throw. No production credentials were accessed to establish this.
+**MRAS partial secret logging — merged source fix:** at the initial assessment, MrasHandler traced the first four characters of keystore/key/truststore passwords. This was a real disclosure when TRACE was enabled, beyond the heap-retention category in rows 51–53; truncation was not masking and short passwords could throw. PRs #2829/#2830 remove those statements and validate actual TLS paths with synthetic canary logs, as recorded above. Verify the deployed artifact and logging behavior before partner closure. No production credentials were accessed to establish or test this.
 
 ## Recommended closure sequence
 
-1. Deploy and verify the merged Gateway text-rendering and OAuth logging fixes linked above, then obtain partner scan closure. Separately remove MRAS password-prefix logs and validate with synthetic canary secrets; that concern remains outside these PRs.
-2. Inventory the configured decryptor and ciphertext formats. Replace fixed-default master secrets and regenerate legacy CBC values as authenticated GCM values through a reviewed compatibility migration.
+1. Deploy and verify the merged Gateway text-rendering, OAuth logging and portal-view fixes linked above, then obtain partner scan closure. Deploy the merged light-4j MRAS logging fix as well and verify credential-free TRACE logs; its source regression tests use synthetic canary secrets.
+2. Inventory the configured decryptor and ciphertext formats before adopting light-4j #2829/#2830. Replace fixed-default master secrets and regenerate legacy CBC/nonstandard values as authenticated standard GCM values; both branches now enforce the cutoff without a legacy opt-in.
 3. Adopt and deploy the merged HSTS configuration linked in the A02 follow-up where applicable, respecting the dedicated HTTPS ingress restriction (normal sidecar egress needs port 9080). Verify public HSTS using HTTPS response captures and effective application/edge configuration; cover normal, redirect, error and favicon responses and direct-origin access before partner closure.
-4. Establish whether stored session IDs and rendezvous channel IDs are capabilities; verify owner binding on reconnect and backend admission. Use cryptographic channel generation regardless. Confirm snapshot UUID validation and deployed deserialization filters/customizations.
+4. Deploy the merged A13/A14 browser fixes linked above. Verify session ownership, rendezvous peer admission and expiry/replay controls; address reconnect-ID URL logging through redaction and a reviewed backend protocol change where required. Confirm snapshot UUID validation; adopt the merged A15 safeguards and verify deployed filters, byte policy and remaining aggregate/driver resource boundaries.
 5. Obtain the partner scan SHA/artifacts for applicability and closure. For archived oauth-kafka and light-controller, first confirm whether any deployment still uses them and plan retirement or migration; legacy use still requires source/artifact assessment. Re-run the scan and focused regressions on repaired artifacts for maintained components; maintain result-specific evidence rather than category-wide suppressions.
 6. Review heap-retention items under a documented threat model, prioritizing long-lived master/private-key/DB secrets over public truststore defaults, hashes and ciphertext.
 
@@ -349,8 +578,8 @@ Every worksheet finding appears once below. Duplicate scanner rows remain separa
 | ---: | --- | --- | --- | --- |
 | 2 | light-rest-4j | Stored_XSS / CRITICAL | [`/specification/src/main/java/com/networknt/specification/FaviconHandler.java:42`](https://github.com/networknt/light-rest-4j/blob/0b65bfb78a15d71060d81158d29a0276ac31fae4/specification/src/main/java/com/networknt/specification/FaviconHandler.java#L42) → `/specification/src/main/java/com/networknt/specification/FaviconHandler.java:43` | [A01](#a01) — False positive |
 | 3 | light-rest-4j | Missing_HSTS_Header / MEDIUM | [`/specification/src/main/java/com/networknt/specification/FaviconHandler.java:43`](https://github.com/networknt/light-rest-4j/blob/0b65bfb78a15d71060d81158d29a0276ac31fae4/specification/src/main/java/com/networknt/specification/FaviconHandler.java#L43) → `/specification/src/main/java/com/networknt/specification/FaviconHandler.java:43` | [A02](#a02) — Conditional; [#452](https://github.com/networknt/light-rest-4j/pull/452) / [#141](https://github.com/networknt/http-sidecar/pull/141) merged; deployment verification pending |
-| 4 | portal-view | Prototype_Pollution / HIGH | [`/src/pages/snapshot/snapshotComparison.worker.ts:19`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/pages/snapshot/snapshotComparison.worker.ts#L19) → `/src/pages/snapshot/snapshotComparison.ts:56` | [A03](#a03) — Conditional |
-| 5 | portal-view | Prototype_Pollution / HIGH | [`/src/pages/snapshot/snapshotComparison.worker.ts:19`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/pages/snapshot/snapshotComparison.worker.ts#L19) → `/src/pages/snapshot/snapshotComparison.ts:43` | [A03](#a03) — Conditional |
+| 4 | portal-view | Prototype_Pollution / HIGH | [`/src/pages/snapshot/snapshotComparison.worker.ts:19`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/pages/snapshot/snapshotComparison.worker.ts#L19) → `/src/pages/snapshot/snapshotComparison.ts:56` | [A03](#a03) — Conditional; [#939](https://github.com/lightapi/portal-view/pull/939) merged; deployment verification pending |
+| 5 | portal-view | Prototype_Pollution / HIGH | [`/src/pages/snapshot/snapshotComparison.worker.ts:19`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/pages/snapshot/snapshotComparison.worker.ts#L19) → `/src/pages/snapshot/snapshotComparison.ts:43` | [A03](#a03) — Conditional; [#939](https://github.com/lightapi/portal-view/pull/939) merged; deployment verification pending |
 | 6 | portal-view | HttpOnly_Cookie_Flag_Not_Set / MEDIUM | [`/src/pages/genai/Chat.test.tsx:306`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/pages/genai/Chat.test.tsx#L306) → `/src/pages/genai/Chat.test.tsx:306` | [A04](#a04) — False positive |
 | 7 | portal-view | HttpOnly_Cookie_Flag_Not_Set / MEDIUM | [`/src/pages/genai/Chat.test.tsx:314`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/pages/genai/Chat.test.tsx#L314) → `/src/pages/genai/Chat.test.tsx:314` | [A04](#a04) — False positive |
 | 8 | portal-view | HttpOnly_Cookie_Flag_Not_Set / MEDIUM | [`/src/pages/genai/Chat.test.tsx:290`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/pages/genai/Chat.test.tsx#L290) → `/src/pages/genai/Chat.test.tsx:290` | [A04](#a04) — False positive |
@@ -369,10 +598,10 @@ Every worksheet finding appears once below. Duplicate scanner rows remain separa
 | 21 | portal-view | HttpOnly_Cookie_Flag_Not_Set / MEDIUM | [`/src/contexts/ControllerContext.tsx:153`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/contexts/ControllerContext.tsx#L153) → `/src/contexts/ControllerContext.tsx:153` | [A06](#a06) — False positive |
 | 22 | portal-view | Use_Of_Hardcoded_Password / MEDIUM | [`/src/components/Header/CartMenu.tsx:130`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/components/Header/CartMenu.tsx#L130) → `/src/components/Header/CartMenu.tsx:152` | [A07](#a07) — False positive |
 | 23 | portal-view | Missing_HSTS_Header / MEDIUM | [`/scripts/mcp-schema-browser-workflow.mjs:26`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/scripts/mcp-schema-browser-workflow.mjs#L26) → `/scripts/mcp-schema-browser-workflow.mjs:26` | [A08](#a08) — False positive |
-| 24 | portal-view | Use_of_Insufficiently_Random_Values / LOW | [`/src/pages/genai/codingRequest.ts:16`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/pages/genai/codingRequest.ts#L16) → `/src/pages/genai/codingRequest.ts:16` | [A09](#a09) — Hardening |
-| 25 | portal-view | Use_of_Insufficiently_Random_Values / LOW | [`/src/components/Header/ProfileMenu.tsx:65`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/components/Header/ProfileMenu.tsx#L65) → `/src/components/Header/ProfileMenu.tsx:65` | [A10](#a10) — Unresolved |
-| 26 | portal-view | Use_of_Insufficiently_Random_Values / LOW | [`/src/utils/fetchClient.ts:54`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/utils/fetchClient.ts#L54) → `/src/utils/fetchClient.ts:54` | [A09](#a09) — Hardening |
-| 27 | portal-view | Use_of_Insufficiently_Random_Values / LOW | [`/src/pages/genai/knowledgeApi.ts:45`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/pages/genai/knowledgeApi.ts#L45) → `/src/pages/genai/knowledgeApi.ts:45` | [A09](#a09) — Hardening |
+| 24 | portal-view | Use_of_Insufficiently_Random_Values / LOW | [`/src/pages/genai/codingRequest.ts:16`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/pages/genai/codingRequest.ts#L16) → `/src/pages/genai/codingRequest.ts:16` | [A09](#a09) — Hardening; [#939](https://github.com/lightapi/portal-view/pull/939) merged; deployment verification pending |
+| 25 | portal-view | Use_of_Insufficiently_Random_Values / LOW | [`/src/components/Header/ProfileMenu.tsx:65`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/components/Header/ProfileMenu.tsx#L65) → `/src/components/Header/ProfileMenu.tsx:65` | [A10](#a10) — Unresolved; [#939](https://github.com/lightapi/portal-view/pull/939) merged; deployment verification pending |
+| 26 | portal-view | Use_of_Insufficiently_Random_Values / LOW | [`/src/utils/fetchClient.ts:54`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/utils/fetchClient.ts#L54) → `/src/utils/fetchClient.ts:54` | [A09](#a09) — Hardening; [#939](https://github.com/lightapi/portal-view/pull/939) merged; deployment verification pending |
+| 27 | portal-view | Use_of_Insufficiently_Random_Values / LOW | [`/src/pages/genai/knowledgeApi.ts:45`](https://github.com/networknt/portal-view/blob/c2e1d5f5f0ca48e69462a4021abe6a4a0c5176f6/src/pages/genai/knowledgeApi.ts#L45) → `/src/pages/genai/knowledgeApi.ts:45` | [A09](#a09) — Hardening; [#939](https://github.com/lightapi/portal-view/pull/939) merged; deployment verification pending |
 | 28 | light-gateway | Client_Resource_Injection / HIGH | [`/config/llmchat-gateway/public/index.html:41`](https://github.com/networknt/light-gateway/blob/06ca1abc5a7ce84611219685fb2589fefc4f6ae3/config/llmchat-gateway/public/index.html#L41) → `/config/llmchat-gateway/public/index.html:45` | [A11](#a11) — False positive |
 | 29 | light-gateway | Client_Resource_Injection / HIGH | [`/config/llmchat-gateway/public/index.html:40`](https://github.com/networknt/light-gateway/blob/06ca1abc5a7ce84611219685fb2589fefc4f6ae3/config/llmchat-gateway/public/index.html#L40) → `/config/llmchat-gateway/public/index.html:45` | [A11](#a11) — False positive |
 | 30 | light-gateway | Client_Resource_Injection / HIGH | [`/config/ai-gateway/public/index.html:41`](https://github.com/networknt/light-gateway/blob/06ca1abc5a7ce84611219685fb2589fefc4f6ae3/config/ai-gateway/public/index.html#L41) → `/config/ai-gateway/public/index.html:51` | [A11](#a11) — False positive |
@@ -381,9 +610,9 @@ Every worksheet finding appears once below. Duplicate scanner rows remain separa
 | 33 | light-gateway | Client_Resource_Injection / HIGH | [`/config/llmchat-rendezvous/public/index.html:78`](https://github.com/networknt/light-gateway/blob/06ca1abc5a7ce84611219685fb2589fefc4f6ae3/config/llmchat-rendezvous/public/index.html#L78) → `/config/llmchat-rendezvous/public/index.html:86` | [A11](#a11) — False positive |
 | 34 | light-gateway | Client_DOM_XSS / HIGH | [`/config/llmchat-rendezvous/public/index.html:124`](https://github.com/networknt/light-gateway/blob/06ca1abc5a7ce84611219685fb2589fefc4f6ae3/config/llmchat-rendezvous/public/index.html#L124) → `/config/llmchat-rendezvous/public/index.html:155` | [A12](#a12) — Confirmed |
 | 35 | light-gateway | Client_DOM_XSS / HIGH | [`/config/llmchat-gateway/public/index.html:60`](https://github.com/networknt/light-gateway/blob/06ca1abc5a7ce84611219685fb2589fefc4f6ae3/config/llmchat-gateway/public/index.html#L60) → `/config/llmchat-gateway/public/index.html:91` | [A12](#a12) — Confirmed |
-| 36 | light-gateway | Client_HTML5_Insecure_Storage / MEDIUM | [`/config/ai-gateway/public/index.html:61`](https://github.com/networknt/light-gateway/blob/06ca1abc5a7ce84611219685fb2589fefc4f6ae3/config/ai-gateway/public/index.html#L61) → `/config/ai-gateway/public/index.html:66` | [A13](#a13) — Conditional |
-| 37 | light-gateway | Use_of_Insufficiently_Random_Values / LOW | [`/config/llmchat-rendezvous/public/index.html:72`](https://github.com/networknt/light-gateway/blob/06ca1abc5a7ce84611219685fb2589fefc4f6ae3/config/llmchat-rendezvous/public/index.html#L72) → `/config/llmchat-rendezvous/public/index.html:72` | [A14](#a14) — Conditional |
-| 38 | light-session-4j | Deserialization_of_Untrusted_Data / HIGH | [`/jdbc-manager/src/main/java/com/networknt/session/jdbc/JdbcSessionRepository.java:375`](https://github.com/networknt/light-session-4j/blob/7a20816baabfcaacae29fcf6e9111b0761ec7fbe/jdbc-manager/src/main/java/com/networknt/session/jdbc/JdbcSessionRepository.java#L375) → `/jdbc-manager/src/main/java/com/networknt/session/jdbc/serializer/DefaultDeserializer.java:103` | [A15](#a15) — Mitigated in current source |
+| 36 | light-gateway | Client_HTML5_Insecure_Storage / MEDIUM | [`/config/ai-gateway/public/index.html:61`](https://github.com/networknt/light-gateway/blob/06ca1abc5a7ce84611219685fb2589fefc4f6ae3/config/ai-gateway/public/index.html#L61) → `/config/ai-gateway/public/index.html:66` | [A13](#a13) — Conditional; [master #262](https://github.com/networknt/light-gateway/pull/262) / [2.x #263](https://github.com/networknt/light-gateway/pull/263) merged; protocol/deployment verification pending |
+| 37 | light-gateway | Use_of_Insufficiently_Random_Values / LOW | [`/config/llmchat-rendezvous/public/index.html:72`](https://github.com/networknt/light-gateway/blob/06ca1abc5a7ce84611219685fb2589fefc4f6ae3/config/llmchat-rendezvous/public/index.html#L72) → `/config/llmchat-rendezvous/public/index.html:72` | [A14](#a14) — Conditional; [master #262](https://github.com/networknt/light-gateway/pull/262) / [2.x #263](https://github.com/networknt/light-gateway/pull/263) merged; protocol/deployment verification pending |
+| 38 | light-session-4j | Deserialization_of_Untrusted_Data / HIGH | [`/jdbc-manager/src/main/java/com/networknt/session/jdbc/JdbcSessionRepository.java:375`](https://github.com/networknt/light-session-4j/blob/7a20816baabfcaacae29fcf6e9111b0761ec7fbe/jdbc-manager/src/main/java/com/networknt/session/jdbc/JdbcSessionRepository.java#L375) → `/jdbc-manager/src/main/java/com/networknt/session/jdbc/serializer/DefaultDeserializer.java:103` | [A15](#a15) — Initial mitigation qualified; [master #68](https://github.com/networknt/light-session-4j/pull/68) / [2.x #69](https://github.com/networknt/light-session-4j/pull/69) merged; deployment/resource checks pending |
 | 39 | yaml-rule-plugin | Use_Of_Hardcoded_Password / MEDIUM | [`/soap-security/src/main/java/com/networknt/soap/SoapSecurityTransformAction.java:35`](https://github.com/networknt/yaml-rule-plugin/blob/cb67b18deb98cfb00384c9ae7995fc24c41cf645/soap-security/src/main/java/com/networknt/soap/SoapSecurityTransformAction.java#L35) → `/soap-security/src/main/java/com/networknt/soap/SoapSecurityTransformAction.java:35` | [A16](#a16) — False positive |
 | 40 | yaml-rule-plugin | Use_Of_Hardcoded_Password / MEDIUM | [`/soap-security/src/main/java/com/networknt/soap/SoapSecurityTransformAction.java:37`](https://github.com/networknt/yaml-rule-plugin/blob/cb67b18deb98cfb00384c9ae7995fc24c41cf645/soap-security/src/main/java/com/networknt/soap/SoapSecurityTransformAction.java#L37) → `/soap-security/src/main/java/com/networknt/soap/SoapSecurityTransformAction.java:37` | [A16](#a16) — False positive |
 | 41 | light-4j | Use_of_Hard_coded_Cryptographic_Key / MEDIUM | [`/decryptor/src/main/java/com/networknt/decrypt/AutoAESSaltDecryptor.java:23`](https://github.com/networknt/light-4j/blob/bc3e4b5e2719d705d58a2edeabeb9bb5009c7401/decryptor/src/main/java/com/networknt/decrypt/AutoAESSaltDecryptor.java#L23) → `/decryptor/src/main/java/com/networknt/decrypt/AESSaltDecryptor.java:96` | [A16](#a16) — False positive |
