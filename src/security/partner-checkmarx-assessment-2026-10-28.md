@@ -67,6 +67,12 @@ historical weak OAuth state generator as a false positive.
 
 ## Gateway A13/A14 remediation follow-up — 2026-10-28
 
+**Superseded lifecycle follow-up:** the examples described below were subsequently
+retired by [master #265](https://github.com/networknt/light-gateway/pull/265) and
+[2.x #266](https://github.com/networknt/light-gateway/pull/266). See the
+[retirement record](#gateway-retirement-2026-10-29). The browser fixes and residual
+analysis below remain historical evidence for surviving deployed copies.
+
 Both remaining non-false-positive light-gateway findings after A12 have merged
 browser-source fixes:
 
@@ -109,6 +115,53 @@ peer admission, expiry/replay enforcement and HTTPS/WSS against the deployed
 backend, then rerun the partner scan. A13/A14 remain conditional for deployment
 closure; neither browser tests nor random channel IDs establish those controls.
 See the [merged security guide](https://github.com/networknt/light-gateway/blob/dc8347a4a6f635d7fdd387d5c10bfcbfbdf68cc0/docs/security/chat-demo-session-channel.md).
+
+<a id="gateway-retirement-2026-10-29"></a>
+
+## Gateway AI demo retirement — 2026-10-29
+
+The owner chose retirement of the examples backed by archived light-genai-4j,
+rather than a new backend resume protocol. Tracking:
+[light-gateway #264](https://github.com/networknt/light-gateway/issues/264).
+GitHub confirms both PRs merged on 2026-10-29:
+
+| Branch | Merged PR | Final reviewed head | Merge commit |
+| --- | --- | --- | --- |
+| master | [#265](https://github.com/networknt/light-gateway/pull/265) | `72de3eeaf513eb63b8f45ccd0184afb4aa3d56b9` | `e759980ef240ef307df0127545fe1554bd5b4461` |
+| 2.x | [#266](https://github.com/networknt/light-gateway/pull/266) | `13ca9075aa146104a11b0447cfcad161cbc27df5` | `35f743bd0f267f4ac8ff533caa92cebe013462ab` |
+
+The source removal covers config/ai-gateway, config/llmchat-gateway and
+config/llmchat-rendezvous, their demo configuration/fixture stores, the embedded
+Kubernetes AI page and its public ConfigMap/volume mount, and the browser-only
+regression suite/workflow whose subjects were removed. These examples contain the
+A12/A13/A14 entry points (Excel rows 34–37). General gateway/WebSocket Java
+implementations are unchanged; no fix or protocol migration was published to the
+archived backend. This is retirement evidence, not a new spreadsheet finding.
+
+The Kubernetes gateway template remains available without bundled public UI.
+Historical startup.serviceId and sample name/instanceId defaults are deliberately
+preserved. They can still select old config-server values, so deployments must
+review their explicit identity and configuration. The retired local credential
+values.yml path remains ignored. The new
+[retirement guide](https://github.com/networknt/light-gateway/blob/e759980ef240ef307df0127545fe1554bd5b4461/docs/security/ai-demo-retirement.md)
+provides cleanup/migration instructions; the old security-guide URL remains a
+historical compatibility link.
+
+Local validation rendered and parsed all four remaining Kubernetes resources on
+each branch with disposable inputs. Volume and ConfigMap/Secret references
+resolved, identity defaults matched the pre-removal template, the legacy local
+values path remained ignored, and retired assets/workflow references were absent.
+Pre-commit and diff checks passed. Java code was unchanged; no new Java or live
+cluster qualification is claimed for this removal.
+
+**Deployment closure:** merging or pulling does not remove copied/cached pages,
+old public ConfigMaps, config-server routes/values, ignored workstation files or
+existing backend deployments. Retire those copies and confirm the affected public
+chat/callback endpoints are no longer exposed. For any deliberately retained
+custom deployment, the original ownership/admission, expiry/replay, URL logging
+and HTTPS/WSS checks still apply. Attach retirement/artifact evidence or a partner
+rescan before closing A12/A13/A14; original worksheet verdicts/counts remain
+historical.
 
 ## JDBC session A15 remediation follow-up — 2026-10-28
 
@@ -391,9 +444,57 @@ The duplicated module-local harness remains intentionally documented. See the
 and [2.x remediation guide](https://github.com/networknt/light-spa-4j/blob/277feab66218932d2e8518114a1957cc8454a03c/docs/security/partner-checkmarx-a28.md).
 These source merges and recorded local results do not establish live identity-provider,
 production logging, full-suite/remote-CI or partner deployment qualification.
-Other callback/provider diagnostics remain outside the scoped assessment. Verify
-adopted artifacts and logging configuration before partner closure. Original
+The adjacent callback/provider diagnostics were subsequently reviewed separately
+in [issue #191 and PRs #192/#193](#spa-callback-follow-up-2026-10-29). Raw transport
+logging and deployment checks remain separate. Verify adopted artifacts and
+logging configuration before partner closure. Original
 worksheet counts and pinned appendix mappings remain historical evidence.
+
+<a id="spa-callback-follow-up-2026-10-29"></a>
+
+## SPA callback/provider privacy follow-up — 2026-10-29
+
+The separate [light-spa-4j #191](https://github.com/networknt/light-spa-4j/issues/191)
+review addresses callback/provider diagnostics explicitly deferred from A28.
+It supplements, rather than replaces, issue #188 and PRs #189/#190. GitHub confirms
+both follow-up PRs merged on 2026-10-29:
+
+| Branch | Merged PR | Final reviewed head | Merge commit |
+| --- | --- | --- | --- |
+| master | [#192](https://github.com/networknt/light-spa-4j/pull/192) | `a7af7697a3195fa2ae3151c876381fbcaa6fb925` | `9227ce42b772311cb3901269db83e58e84ebf2eb` |
+| 2.x | [#193](https://github.com/networknt/light-spa-4j/pull/193) | `fac6024c1741f916f9025a0acc68ce85462fd528` | `68d2aa293d5c17fda91c63395fbc01176658d61d` |
+
+The scoped callers no longer log authorization code/state, complete token results,
+GitHub codes or Portal social-user command payloads. Stateless/Facebook token
+failures preserve the provider HTTP status but return configured ERR10014 with
+fixed text instead of the raw provider Status. MSAL retains configured ERR11648
+with a fixed safe argument. Success responses, trust policy and cookie handling
+are unchanged; the redacted error bodies are an intentional behavior change.
+
+Portal diagnostics retain sanitized copies of cause types, bounded stack/cause/
+suppressed chains and validated SQLState/vendor metadata, without provider
+exception messages. Fully qualified names also cover anonymous types. MSAL now
+uses PortalClient from its existing stateless-auth dependency instead of a shadow
+copy; deploy matching module artifacts. Both module contexts have privacy tests.
+
+Recorded clean affected-reactor validation passed **159 tests on master and 85 on
+2.x**, zero failures/errors and one existing skip each. Two legacy Azure methods
+were explicitly excluded on 2.x because their fixtures contact Microsoft endpoints.
+The corrected refresh-token canary is asserted in the returned cookie before log
+checks. Local probes cover callback/Facebook error responses, GitHub's existing
+code-processing stub, MSAL exchange failure, constructor failures and anonymous/
+nested/cyclic Portal exceptions. Logging-only negative controls catch reintroduced
+token-result logging, raw MSAL Status logging and raw provider responses without
+changing HTTP outcomes. Final focused privacy checks and pre-commit also passed.
+
+Root appenders inspect messages, arguments, MDC and throwable chains. Portal
+failure probes run all loggers/root at TRACE; callback probes run auth at TRACE
+with root capture at WARN. Raw transport TRACE can still print legacy callback
+URLs, and Portal's encoded command/query URL transport remains a separate
+boundary. These are scoped source/JVM results, not full-repository, live-provider,
+production-log or partner-rescan qualification. See the
+[merged provider-diagnostics guide](https://github.com/networknt/light-spa-4j/blob/9227ce42b772311cb3901269db83e58e84ebf2eb/docs/security/oauth-provider-diagnostics.md).
+This follow-up adds no rows or category-wide reclassification to the workbook.
 
 ## HSTS configuration follow-up — 2026-10-28
 
@@ -550,6 +651,11 @@ All three pages construct the destination from window.location.protocol and wind
 
 **Confirmed at assessment; source fixes merged — Excel rows 34, 35.**
 
+**Subsequent retirement:** [master #265](https://github.com/networknt/light-gateway/pull/265)
+and [2.x #266](https://github.com/networknt/light-gateway/pull/266) remove these demo
+entry points. See the [retirement record](#gateway-retirement-2026-10-29); the
+baseline and earlier browser remediation below remain historical evidence.
+
 Resolved through [issue #258](https://github.com/networknt/light-gateway/issues/258) and [issue #259](https://github.com/networknt/light-gateway/issues/259) by [master PR #260](https://github.com/networknt/light-gateway/pull/260) and [2.x PR #261](https://github.com/networknt/light-gateway/pull/261); see the row-specific issue links in the remediation table above.
 
 Both `config/llmchat-rendezvous/public/index.html:155` and `config/llmchat-gateway/public/index.html:91` interpolate untrusted text directly into div.innerHTML in log(). WebSocket event.data and, in the rendezvous page, backend callback response text reach that sink; user-entered text reaches it too. A message containing an image element with an event-handler attribute is parsed as HTML, rather than displayed as text. Exploitation against other users requires influence over a message or callback they receive; deployment exposure and CSP affect impact. This is a real source-level defect even though these are demo assets. Replace text interpolation with textContent/createTextNode, keeping a separately created strong element for the fixed role. The ai-gateway demo already shows the createTextNode pattern. Test malicious-looking messages as literal text before serving these demos to users.
@@ -560,6 +666,11 @@ Both `config/llmchat-rendezvous/public/index.html:155` and `config/llmchat-gatew
 
 **Conditional — Excel rows 36.**
 
+**Subsequent retirement:** [master #265](https://github.com/networknt/light-gateway/pull/265)
+and [2.x #266](https://github.com/networknt/light-gateway/pull/266) remove these demo
+entry points. See the [retirement record](#gateway-retirement-2026-10-29); the
+baseline and earlier browser remediation below remain historical evidence.
+
 **Merged follow-up:** [master #262](https://github.com/networknt/light-gateway/pull/262) and [2.x #263](https://github.com/networknt/light-gateway/pull/263) remove browser persistence from both the canonical and Kubernetes AI pages. The initial-baseline analysis below is retained; the reconnect URL exposure and backend/deployment checks remain outstanding.
 
 `ai-gateway/public/index.html:61–66` stores json.sessionId in sessionStorage and later sends it as a reconnect parameter. A session ID used only as an owner-authorized conversation identifier is not automatically a bearer credential; sessionStorage is tab-scoped but readable by same-origin JavaScript. If possession authorizes reconnection, XSS or script compromise can disclose the capability and the finding is real. Confirm backend ownership checks, expiry and replay behavior before closing; do not claim browser storage is inherently secure or move an actual authentication secret to localStorage.
@@ -569,6 +680,11 @@ Both `config/llmchat-rendezvous/public/index.html:155` and `config/llmchat-gatew
 ### A14: Rendezvous channel randomness
 
 **Conditional — Excel rows 37.**
+
+**Subsequent retirement:** [master #265](https://github.com/networknt/light-gateway/pull/265)
+and [2.x #266](https://github.com/networknt/light-gateway/pull/266) remove these demo
+entry points. See the [retirement record](#gateway-retirement-2026-10-29); the
+baseline and earlier browser remediation below remain historical evidence.
 
 **Merged follow-up:** [master #262](https://github.com/networknt/light-gateway/pull/262) and [2.x #263](https://github.com/networknt/light-gateway/pull/263) replace Math.random with Web Crypto and guard connection/callback lifecycle. The initial-baseline analysis below is retained; authenticated peer admission, ownership and expiry still need deployment verification.
 
@@ -717,6 +833,12 @@ initial master baseline; it did not establish that 2.x was already mitigated.
 
 The current MsalTokenExchangeHandler and StatelessAuthHandler verify tokens through their configured trust providers and no longer contain the reported JWT/claim debug/trace messages around the old sinks. These scan line numbers now refer to different statements. The reported cookie-to-log path is not reproduced by current source inspection. This is a current-source mitigation, not evidence that the historical finding was false or that all logging in these classes is safe: other request-path, authorization-code/state or token-result logging deserves a separate review. Confirm the deployed artifact and exercise CR/LF-bearing rejected input with canary-only logs before closing.
 
+**Adjacent diagnostics follow-up:** [master #192](https://github.com/networknt/light-spa-4j/pull/192)
+and [2.x #193](https://github.com/networknt/light-spa-4j/pull/193), tracking issue
+#191, address the separate callback/provider logging review. See the
+[follow-up record](#spa-callback-follow-up-2026-10-29) for error-body behavior,
+regression evidence and remaining transport/deployment boundaries.
+
 ## Additional concern found during review
 
 **Fixed default in the base decryptor:** `light-4j/decryptor/.../AESSaltDecryptor.java:getPassword` returns a literal default password. This remains in the merged light-4j source by the explicit compatibility waiver in #2828; it is not fixed by the AES-GCM format cutoff. Unlike the AutoAESSaltDecryptor test fallback in row 44, direct production use of this base implementation provides no deployment-specific master secret. Anyone who obtains ciphertext and knows the public default can derive its key. Confirm the configured decryptor class before closure; use an approved runtime-secret implementation such as AutoAESSaltDecryptor and re-encrypt affected values. This is an additional root cause, not an extra row in the 118-row counts.
@@ -725,10 +847,10 @@ The current MsalTokenExchangeHandler and StatelessAuthHandler verify tokens thro
 
 ## Recommended closure sequence
 
-1. Deploy and verify the merged Gateway text-rendering, OAuth logging and portal-view fixes linked above, then obtain partner scan closure. Deploy the merged light-4j MRAS logging fix as well and verify credential-free TRACE logs; its source regression tests use synthetic canary secrets.
+1. Adopt the merged Gateway demo retirement and remove surviving deployed/cached copies. Deploy and verify the OAuth logging, portal-view and SPA callback/provider fixes linked above, then obtain partner scan or documented retirement closure. Deploy the merged light-4j MRAS logging fix as well and verify credential-free TRACE logs; its source regression tests use synthetic canary secrets.
 2. Inventory the configured decryptor and ciphertext formats before adopting light-4j #2829/#2830. Replace fixed-default master secrets and regenerate legacy CBC/nonstandard values as authenticated standard GCM values; both branches now enforce the cutoff without a legacy opt-in.
 3. Adopt and deploy the merged HSTS configuration linked in the A02 follow-up where applicable, respecting the dedicated HTTPS ingress restriction (normal sidecar egress needs port 9080). Verify public HSTS using HTTPS response captures and effective application/edge configuration; cover normal, redirect, error and favicon responses and direct-origin access before partner closure.
-4. Deploy the merged A13/A14 browser fixes linked above. Verify session ownership, rendezvous peer admission and expiry/replay controls; address reconnect-ID URL logging through redaction and a reviewed backend protocol change where required. Confirm snapshot UUID validation; adopt the merged A15 safeguards and verify deployed filters, byte policy and remaining aggregate/driver resource boundaries.
+4. Complete A13/A14 retirement in actual deployments, including old config-server values and public ConfigMaps. For any deliberately retained custom deployment, verify session ownership, rendezvous peer admission and expiry/replay controls, and address reconnect-ID URL logging; repository removal does not repair that deployment. Confirm snapshot UUID validation; adopt the merged A15 safeguards and verify deployed filters, byte policy and remaining aggregate/driver resource boundaries.
 5. Obtain the partner scan SHA/artifacts for applicability and closure. For archived oauth-kafka and light-controller, first confirm whether any deployment still uses them and plan retirement or migration; legacy use still requires source/artifact assessment. Re-run the scan and focused regressions on repaired artifacts for maintained components; maintain result-specific evidence rather than category-wide suppressions.
 6. Adopt the merged A20 hardening for light-4j, light-portal, light-lambda-native and http-client linked above, with the applicable hybrid/native rebuilds and provider-lifecycle checks. Review remaining heap retention under a documented threat model, prioritizing long-lived master/private-key/DB secrets over public truststore defaults, hashes and ciphertext.
 
