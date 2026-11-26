@@ -516,6 +516,57 @@ Backport validation: local clean suites passed with 31 tests (9 skips) for http-
 
 Source/configuration remediation is merged; **A02 remains conditional pending deployment verification**. Verify the effective public HTTPS policy on favicon, normal, redirect and error responses, public HTTP handling and direct-origin restrictions, then rerun the partner scan. The original assessment counts below are unchanged.
 
+## Operator JDBC TLS advisory — November row 3
+
+[light-portal #894](https://github.com/lightapi/light-portal/pull/894) is merged
+into `master` at `aa9876ff956d4e7eff8dfb00af63071d80f4d86c`. It adds a
+one-time stderr advisory for the membership repair and identity backfill
+tools when their PostgreSQL JDBC URL disables TLS, allows plaintext fallback,
+configures incomplete server identity verification, selects the known
+nonvalidating SSL factory, or leaves a service file to supply `sslmode`.
+The advisory names the environment setting and omits the URL and credentials.
+The targeted local test run passed 27 tests.
+
+For remote PostgreSQL connections, configure `MEMBERSHIP_REPAIR_JDBC_URL` or
+`ENTITY_CREATION_JDBC_URL` with `sslmode=verify-full`, a trusted CA, and a
+hostname that matches the server certificate. The advisory leaves the supplied
+JDBC settings and connection behavior intact. It inspects URL options alone.
+If a tool is in use, verify its effective TLS and server authentication policy
+using redacted settings and an approved read-only connection or an existing
+session. If neither tool is in use, record that for the applicability decision.
+[Operator JDBC guide](https://github.com/lightapi/light-portal/blob/aa9876ff956d4e7eff8dfb00af63071d80f4d86c/doc/security/operator-jdbc-credentials.md)
+
+## Partner HSTS deployment instructions — November row 48
+
+1. Identify the application instance serving `GET /favicon.ico`, its public
+   hostname, and where TLS terminates. Confirm whether the instance also
+   serves plaintext HTTP egress on port `9080`.
+2. For a dedicated HTTPS sidecar ingress, merge the
+   [HSTS overlay](https://github.com/networknt/http-sidecar/blob/master/config/hsts/values-overlay.yml)
+   into its existing application values. Preserve custom route chains and
+   header rules, and verify that `HeaderHandler` runs before applicable
+   routes or fallback handlers send responses. The overlay emits
+   `Strict-Transport-Security: max-age=31536000`. It disables plaintext HTTP.
+   If the existing sidecar provides HTTP egress, apply the overlay on a
+   separate dedicated HTTPS ingress instance and retain the existing egress
+   listener. [Sidecar HSTS integration guide](https://github.com/networknt/http-sidecar/tree/master/config/hsts)
+3. Verify application emission on the HTTPS ingress and confirm that the
+   public HTTPS response preserves exactly one intended HSTS value. Use GET
+   for the favicon and cover representative success, redirect and error
+   responses. Check public plaintext HTTP handling, direct-origin access
+   restrictions and continued HTTP egress where applicable.
+4. Provide the serving revision, redacted effective application header
+   settings and public HTTPS response headers for partner review. A header
+   inserted only at the TLS edge provides browser mitigation. The partner's
+   stated closure criterion includes application-generated HSTS. If TLS
+   offload or a required single dual-listener process prevents adoption of
+   this overlay, confirm the topology before selecting an application-layer
+   alternative.
+
+The dedicated-ingress overlay is already merged. Closure depends on applying
+it or an equivalent application-layer policy and verifying the assessed
+deployment.
+
 ## Archived repository follow-up — 2026-10-28
 
 The repository owner has archived `oauth-kafka` and `light-controller`. GitHub archive status was verified on 2026-10-28 at the canonical repository locations below. This lifecycle update applies to **17 worksheet findings**; it is separate from the merged fixes for the four confirmed findings above.
