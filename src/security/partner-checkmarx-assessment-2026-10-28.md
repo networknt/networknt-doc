@@ -17,6 +17,248 @@ This is a source-based assessment, not penetration testing or certification of t
 
 The four confirmed rows represent two root causes: DOM XSS in two demo pages (rows 34–35), and OAuth response logging at two sinks (106–107). There are also important conditional issues: legacy CBC, rendezvous channel secrecy, missing public HSTS and session identifier semantics. Do not dismiss conditional findings as false alarms.
 
+## November 20 rescan assessment — reviewed 2026-11-23
+
+Reviewed `consolidated_excel_20112026_sanitized.xlsx`, sheet `Scan Report`,
+SHA-256 `c3638a54a7dfe22d043d1adfdf4b91f910a93c8a9d3209961e8811fd99dc9b1d`.
+There are **89 findings across nine repositories**, on physical worksheet rows
+2–90. Checkmarx marks 48 rows `NEW` and 41 `RECURRENT`. The crosswalk below
+uses repository, rule, source/sink paths and symbols, with source inspection
+where line numbers or the implementation changed. The export does not identify
+the scanned commits or effective deployment configuration. The October ledger
+and counts remain historical.
+
+Reviewed source revisions were `light-portal` `8283125bb`, `portal-view`
+`fe7d4c5`, `light-rest-4j` `aadc233`, `light-session-4j` `8c09890`,
+`light-spa-4j` `42e5f0a`, `light-aws-lambda` `fffd440`,
+`event-importer` `fdefecf`, `http-client` `0f6031a`, and `light-4j`
+`569768b18`.
+
+### New remediation and open evidence
+
+- **Rows 26–28, email link hardening.** The three Portal templates open links
+  in a new tab without an explicit opener policy. The link destinations are
+  assembled from configured Portal URLs, and modern browsers implicitly isolate
+  the opener for these anchors. Explicit `rel="noopener noreferrer"` covers
+  clients that lack the implicit behavior. While tracing these links, source
+  review confirmed that `ForgetPassword` and `CreateUser` logged full links
+  containing reset or confirmation tokens at DEBUG. The confirmation helper also
+  included the command payload in an encoding error log. This is a separate
+  source-confirmed privacy defect discovered during review. The PR hardens all
+  three links and removes the token-bearing logs.
+  [light-portal #893](https://github.com/lightapi/light-portal/pull/893)
+- **Row 3, conditional operator JDBC transport.**
+  [Merged advisory and deployment guidance](#operator-jdbc-tls-advisory--november-row-3).
+  `OperatorJdbcDataSource`
+  passes a runtime password to the JDBC driver with operator-supplied connection
+  settings. The password argument alone does not establish plaintext on the
+  wire. The source sets connection timeouts and leaves TLS to the URL and driver.
+  PostgreSQL JDBC's default `prefer` permits fallback to plaintext. Closure
+  requires the effective transport and server authentication policy for the
+  membership repair and entity backfill jobs, including verified TLS
+  (`sslmode=verify-full` with a trusted CA) for remote PostgreSQL connections.
+  [pgJDBC SSL documentation](https://jdbc.postgresql.org/documentation/ssl/)
+- **Row 48, existing A02 deployment evidence.** The favicon still relies on the
+  effective HTTPS ingress HSTS policy. The October configuration fixes remain
+  applicable. A public HTTPS response capture is still needed for closure.
+  [October HSTS follow-up](#hsts-configuration-follow-up--2026-10-28)
+
+Local validation of [light-portal #893](https://github.com/lightapi/light-portal/pull/893)
+at `cfb5de2` passed the targeted Maven reactor (8 tests, 4 skipped, zero
+failures or errors). Parsing the three shipped templates verified their CTA
+placeholders and explicit opener policy. GitNexus rated the helper changes low
+risk. These results are local source evidence.
+
+### Account email review follow-up — 2026-11-26
+
+GitHub records all three remediation PRs as merged on 2026-11-26.
+
+| Merged PR | Branch | Merge commit |
+| --- | --- | --- |
+| [light-portal #893](https://github.com/lightapi/light-portal/pull/893) | `master` | `85622bd595b6bf41f1983396cb9550b3f4a89de0` |
+| [light-hybrid-4j #192](https://github.com/networknt/light-hybrid-4j/pull/192) | `master` | `51023b47199ee7274f5b875939f73504783f7255` |
+| [light-hybrid-4j #193](https://github.com/networknt/light-hybrid-4j/pull/193) | `2.x` | `b5fec49be393f4a2a52b8b93c0b74bded7ae5650` |
+
+The follow-up code review verified six of seven findings by reading the PR
+diffs at Portal `6d12bb3` and router `5dc2bba`. The reviewer did not run
+tests. The test counts below are from the implementation runs. The remaining
+finding concerns the GET query string in access logs.
+
+- [light-portal #893](https://github.com/lightapi/light-portal/pull/893) now
+  serializes confirmation commands as JSON, encodes reset-link parameters,
+  canonicalizes the reset email before event creation and email delivery, and
+  omits event payloads from trace logs. Regression tests use the shipped
+  templates and check the trace and stored event separately. Targeted Portal
+  suites reported 7 passed and 4 skipped.
+- [light-hybrid-4j #192](https://github.com/networknt/light-hybrid-4j/pull/192)
+  removes raw GET and POST command debug logs and preserves command values
+  already decoded by Undertow. It also accepts the extra encoding layer used
+  by legacy callers. The targeted router suite passed 13 tests. Confirmation
+  links containing literal plus signs require the updated router at runtime.
+  Build and deploy the hybrid-command image with the fixed router before
+  verifying confirmation for plus-addressed accounts. This also applies to
+  previously issued single-encoded links whose payload was serialized correctly.
+- [light-hybrid-4j #193](https://github.com/networknt/light-hybrid-4j/pull/193)
+  backports the same router fix and regression test to `2.x`. The local
+  targeted suite passed 13 tests using cached light-4j `2.5.1-SNAPSHOT`
+  artifacts. Maven Central could not resolve the branch-pinned `2.5.1`
+  dependencies for the default test run.
+- **Open deployment evidence:** Existing confirmation links carry the command
+  and token in the query string. Check the effective access-log formats at
+  the edge, gateway and server, including request-line fields, and verify
+  that confirmation query strings are omitted or redacted before considering
+  token logging closed. The reviewed source and local configurations do not
+  identify an effective partner access-log format or a route-specific logging
+  rule for this endpoint. A fragment-to-POST flow would remove the token from
+  newly emitted confirmation request URLs and requires a coordinated login
+  UI and Portal rollout. Already issued GET links would still need log
+  protection while they remain valid.
+
+**Confirmation token lifetime and replay.** In Portal source at `8283125bb`,
+`UserPersistenceImpl.confirmUser` looks up the submitted token by user ID and
+token value. A successful projection update sets `user_t.token` to SQL NULL,
+sets `verified` to true and advances the aggregate version. Once that update
+commits, another use of the same token cannot match the stored token. The
+command handler itself checks user existence. The token check and clear happen
+in the projection. The projection also guards its update by aggregate version.
+
+This narrows the risk after a successful confirmation commits. A logged
+request can still carry a live token before commit or if confirmation fails
+while the token remains stored. The relevant boundary is successful
+consumption, since clicking the link alone does not establish that the token
+was cleared. Access-log redaction remains open.
+
+The source review also found a separate logging sink. On a token mismatch,
+the projection includes the submitted token in a SQL exception and logs that
+exception at ERROR. After successful consumption this can log a spent token.
+An unsuccessful request can also put a submitted token in error logs. Track
+sanitizing the exception itself and its logged cause chain separately from
+access-log redaction. These findings are based on source inspection.
+
+### Deployment evidence review for rows 3 and 48
+
+**Row 3 — operator JDBC transport.** The only production source callers in
+`light-portal` are the standalone membership repair and identity backfill entry
+points. Each reads its own operator-provided JDBC URL and opens a connection
+through `DriverManager`. The reviewed workspace contains input documentation
+and synthetic fixtures for these variables. It provides no effective partner
+URL, matching database authentication rule, or evidence that either tool runs
+there. Both tools need separate evidence if both are in use.
+
+For PostgreSQL, cleartext credential transmission occurs if the server selects
+the `password` method over an unencrypted connection. SCRAM uses a
+challenge-response exchange, so an unencrypted SCRAM session is a transport
+policy gap with a different impact. The client's effective TLS mode and trust
+configuration must independently establish server identity. The use of a
+protected password file affects how the credential is loaded on disk. JDBC
+transport is negotiated separately. The helper sets driver timeouts and
+does not itself require TLS, so this remains a configuration-dependent gap.
+[PostgreSQL password authentication](https://www.postgresql.org/docs/current/auth-password.html)
+[pgJDBC TLS configuration](https://jdbc.postgresql.org/documentation/ssl/)
+
+**Verdict:** Real configuration weakness. The reported cleartext password
+transmission remains unverified in the partner environment.
+
+**Questions for the operator or partner**
+
+- Do membership repair or identity backfill run in the assessed environment?
+  For each tool in use, is the database connection local or remote?
+- For each remote connection, can you provide the effective JDBC driver and
+  redacted TLS mode, certificate and hostname verification policy, and any
+  custom SSL factory? Please omit credentials and full JDBC URLs.
+- What server authentication method applies to that client and database role?
+  Can you provide TLS status from an existing session or an approved
+  connectivity check using the same connection settings?
+
+**Compatibility:** Requiring verified TLS by default would reject existing
+local or legacy connection configurations without matching certificates and
+trust configuration. Remote PostgreSQL users can set `sslmode=verify-full`
+with a trusted CA and matching hostname through the existing JDBC URL,
+without a code change. An opt-in enforcement flag would preserve existing
+callers and would protect only callers that enable it.
+
+**Row 48 — HSTS control and partner acceptance.** See the
+[partner deployment instructions](#partner-hsts-deployment-instructions--november-row-48).
+The rescan marks the row
+`RECURRENT / Confirmed`. Its reviewer comment explicitly treats infrastructure
+HSTS as mitigation and asks for application-layer defense in depth. The
+shipped sidecar default routes `GET /favicon.ico` through `HeaderHandler`
+before `FaviconHandler`, but its default header configuration omits HSTS. The
+merged dedicated HTTPS ingress overlay adds the host-wide policy at application
+response time. The reviewed configuration does not establish whether a
+partner serving application adopted this overlay or an equivalent policy.
+A TLS-only listener alone does not establish HSTS behavior for a browser.
+[RFC 6797](https://www.rfc-editor.org/rfc/rfc6797.html)
+
+**Verdict:** Real HSTS omission in the shipped sidecar default. The partner
+deployment's application-layer HSTS and public HTTPS behavior remain
+unverified.
+
+**Questions for the serving application owner or partner**
+
+- Which public hostname and deployed application revision serve
+  `GET /favicon.ico`? Where does TLS terminate?
+- Can you share the effective application header configuration or an
+  application response capture identifying where HSTS is added? Does the
+  application use the merged HTTPS ingress overlay or an equivalent policy?
+- Can you provide public HTTPS GET response headers for the favicon and
+  representative success, redirect and error responses, plus the behavior
+  of public HTTP and whether the origin is directly reachable? A positive
+  HSTS header supplied only by the edge establishes public mitigation.
+  The partner's stated closure criterion is application-generated HSTS.
+
+**Compatibility:** The merged overlay is an application-layer fix for a
+dedicated HTTPS ingress and needs no library code change. Applying it to a
+normal dual-listener sidecar would disable the HTTP listener needed for
+egress. Hard-coding HSTS in `FaviconHandler` would apply a browser policy for
+the entire host from one route in a reusable library. Enable the policy in
+the consuming application's HTTPS ingress after confirming its topology.
+
+### November worksheet crosswalk
+
+Rows below refer to the November worksheet. October references use the assessment
+IDs and physical worksheet rows in the historical ledger.
+
+| November rows | Disposition and source evidence |
+| --- | --- |
+| 2 | False positive. The loopback qualification fixture reads JSON, writes an isolated JSONL evidence file and sends an `application/json` response. The reported write does not render executable HTML. |
+| 3 | Conditional. Operator JDBC transport and authentication settings need deployment evidence as described above. |
+| 4 | False positive. `KnowledgeQueries` resolves the HMAC key from an environment value or a secret file and rejects a missing or short key. The literal is an environment variable name. |
+| 5–16, 18 | False positives. The flagged Java values are status codes for invalid credentials, mismatched passwords or hashing failures, the same pattern as [A22](#a22). |
+| 17, 19 | False positives. The flagged literals are request documentation examples for login and user creation. Runtime handlers take credentials from the submitted request. |
+| 20 | False positive. `SpecUtil.getToolsFromStdio` writes a JSON-RPC request to a subprocess stdin. HSTS has no role at that sink. |
+| 21 | False positive. The listener is an ephemeral 127.0.0.1 qualification fixture, with JSON responses and a synthetic credential. |
+| 22 | [A21](#a21), October row 69. SHA-1 is used for deterministic UUID identity. |
+| 23–25 | [A22](#a22), October rows 70, 72 and 71 respectively. The constants identify password-related event types. |
+| 26–28 | Email opener hardening in [light-portal #893](https://github.com/lightapi/light-portal/pull/893). |
+| 29 | Residual [A20](#a20) hardening. The operator JDBC path still creates or receives the password String required by JDBC. Existing work bounds temporary copies and clears the connection properties. [light-portal #879](https://github.com/lightapi/light-portal/pull/879) |
+| 30–41 | New [A20](#a20)-class heap hardening. Login, creation, onboarding and password changes hold request password Strings, and password-reset processing holds the generated token as a String. These are real in-process values. The rows establish neither a heap-read capability nor a distinct remote defect. Changing local variable types alone would leave the original request or token String intact. |
+| 42–43 | [A23](#a23), October rows 74–75. The values are a password hash and ciphertext respectively. |
+| 44, 46 | False positives for public HSTS/CSP. `workflowIngress.mjs` is an opt-in Vite serve plugin locked to the local Workflow origin and gateway. Its reported responses are a local rejection and the proxied API response. Public edge headers remain a deployment responsibility. |
+| 45 | [A04](#a04), October row 18. The value is a test canary in the operational-store registration contract. |
+| 47 | [A01](#a01), October row 2. The favicon handler serves icon bytes with an image media type. |
+| 48 | [A02](#a02), October row 3. Conditional pending effective public HTTPS ingress evidence. |
+| 49 | [A15](#a15), October row 38. The reported `getBinaryStream` is the repaired JDBC path. `DefaultDeserializer` bounds the read before constructing `ObjectInputStream` and applies the class and object-graph filters before `readObject`. |
+| 50 | False positive. The offline session cleanup command uses `password` as the JDBC property name. Its value comes from `JDBC_MAINTENANCE_PASSWORD`. |
+| 51 | False positive. `msal-auth` names the config section. `SessionCsrf` initializes its HMAC key from configured signing material. |
+| 52 | False positive. `HttpUtils.post` writes a request to the Lambda Runtime API using the validated runtime endpoint. The reported sink is an internal HTTP client call. |
+| 53–58 | [A26](#a26), October rows 99–104 respectively. The literals identify PEM delimiters and labels. |
+| 59 | [A21](#a21), October row 105. The same deterministic identifier digest moved to a new line. |
+| 60 | Related to [A27](#a27) but names a different logger sink than October rows 106–107. The current OAuth key-fetch error logs only the numeric HTTP status. The sanitized exception log emits the class name. The existing [master](https://github.com/networknt/http-client/pull/62) and [2.x](https://github.com/networknt/http-client/pull/63) fixes cover this code. |
+| 61–64 | [A20](#a20), October rows 109, 108, 110 and 111 respectively. The two truststore references shifted within the same methods. Existing follow-up covers temporary copies and explains residual TLS credential retention. |
+| 65 | [A17](#a17), October row 43. The ciphertext supplies the salt. The passphrase identified by the scanner is a separate PBKDF2 input. Historical producer and ciphertext provenance still govern closure. |
+| 66–67 | [A16](#a16), October rows 42 and 41 respectively. The literals are a console prompt and a configuration lookup name. |
+| 68 | Mitigated [A20](#a20) path related to October row 50. `ownedPasswords` tracks temporary arrays for erasure in `finally`, with the thread-local removed or restored after the call. |
+| 69 | New [A20](#a20)-class heap hardening. `GenericDataSource` loads the configured database password and passes it to Hikari. The String reference is part of the pool configuration lifecycle. |
+| 70–78 | [A20](#a20), October rows 67, 54, 53, 55, 51, 49, 47, 52 and 48 respectively. These are the same decryptor and TLS credential lifecycles covered by the October follow-up. |
+| 79–82 | [A20](#a20), October rows 56–59 respectively. TLS config arrays remain available for reuse. |
+| 83–90 | [A20](#a20), October rows 61, 60, 62, 65, 63, 66, 64 and 68 respectively. Source locations shifted in the client, config loaders and Basic authentication handler. |
+
+The two original demo XSS rows and the original OAuth token/introspection
+logging sinks are absent from this export. Row 60 is the separate OAuth
+key-fetch site discussed above. Absence from the worksheet leaves partner
+closure dependent on the scan's revision and coverage.
+
 ## Merged remediation follow-up — 2026-10-28
 
 All four confirmed findings now have merged source fixes on both `master` and `2.x`. GitHub merge and issue states were verified on 2026-10-28: all four PRs are merged and all four issues are closed. Each repository's pair of PRs resolves both of its reported findings.
@@ -515,6 +757,57 @@ Backport validation: local clean suites passed with 31 tests (9 skips) for http-
 **Deployment restriction:** the opt-in overlay is for a dedicated HTTPS ingress instance. It disables plaintext HTTP, including the normal co-located sidecar egress port 9080; do not apply it to that topology. Use a separate ingress instance or enforce HSTS at a trusted TLS edge. Generic HeaderHandler does not distinguish HTTP from HTTPS listeners. Packaged defaults retain plaintext egress and do not enable HSTS. The example uses `max-age=31536000` without `includeSubDomains` or `preload`.
 
 Source/configuration remediation is merged; **A02 remains conditional pending deployment verification**. Verify the effective public HTTPS policy on favicon, normal, redirect and error responses, public HTTP handling and direct-origin restrictions, then rerun the partner scan. The original assessment counts below are unchanged.
+
+## Operator JDBC TLS advisory — November row 3
+
+[light-portal #894](https://github.com/lightapi/light-portal/pull/894) is merged
+into `master` at `aa9876ff956d4e7eff8dfb00af63071d80f4d86c`. It adds a
+one-time stderr advisory for the membership repair and identity backfill
+tools when their PostgreSQL JDBC URL disables TLS, allows plaintext fallback,
+configures incomplete server identity verification, selects the known
+nonvalidating SSL factory, or leaves a service file to supply `sslmode`.
+The advisory names the environment setting and omits the URL and credentials.
+The targeted local test run passed 27 tests.
+
+For remote PostgreSQL connections, configure `MEMBERSHIP_REPAIR_JDBC_URL` or
+`ENTITY_CREATION_JDBC_URL` with `sslmode=verify-full`, a trusted CA, and a
+hostname that matches the server certificate. The advisory leaves the supplied
+JDBC settings and connection behavior intact. It inspects URL options alone.
+If a tool is in use, verify its effective TLS and server authentication policy
+using redacted settings and an approved read-only connection or an existing
+session. If neither tool is in use, record that for the applicability decision.
+[Operator JDBC guide](https://github.com/lightapi/light-portal/blob/aa9876ff956d4e7eff8dfb00af63071d80f4d86c/doc/security/operator-jdbc-credentials.md)
+
+## Partner HSTS deployment instructions — November row 48
+
+1. Identify the application instance serving `GET /favicon.ico`, its public
+   hostname, and where TLS terminates. Confirm whether the instance also
+   serves plaintext HTTP egress on port `9080`.
+2. For a dedicated HTTPS sidecar ingress, merge the
+   [HSTS overlay](https://github.com/networknt/http-sidecar/blob/master/config/hsts/values-overlay.yml)
+   into its existing application values. Preserve custom route chains and
+   header rules, and verify that `HeaderHandler` runs before applicable
+   routes or fallback handlers send responses. The overlay emits
+   `Strict-Transport-Security: max-age=31536000`. It disables plaintext HTTP.
+   If the existing sidecar provides HTTP egress, apply the overlay on a
+   separate dedicated HTTPS ingress instance and retain the existing egress
+   listener. [Sidecar HSTS integration guide](https://github.com/networknt/http-sidecar/tree/master/config/hsts)
+3. Verify application emission on the HTTPS ingress and confirm that the
+   public HTTPS response preserves exactly one intended HSTS value. Use GET
+   for the favicon and cover representative success, redirect and error
+   responses. Check public plaintext HTTP handling, direct-origin access
+   restrictions and continued HTTP egress where applicable.
+4. Provide the serving revision, redacted effective application header
+   settings and public HTTPS response headers for partner review. A header
+   inserted only at the TLS edge provides browser mitigation. The partner's
+   stated closure criterion includes application-generated HSTS. If TLS
+   offload or a required single dual-listener process prevents adoption of
+   this overlay, confirm the topology before selecting an application-layer
+   alternative.
+
+The dedicated-ingress overlay is already merged. Closure depends on applying
+it or an equivalent application-layer policy and verifying the assessed
+deployment.
 
 ## Archived repository follow-up — 2026-10-28
 
