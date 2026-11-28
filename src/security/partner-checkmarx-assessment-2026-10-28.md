@@ -271,8 +271,18 @@ NEW. The A23 and A24 findings retain their separate dispositions.
 | HTTP-client, October 108–111 and November 61–64 | Local changes for master and 2.x add opt-in UTF-8 password files for the client keystore, private key, configured truststore and default truststore. Removing corresponding legacy values avoids retaining their secret Strings in that deployment. The bytes and chars owned by the loader are wiped. Provider-owned copies require provider-specific qualification. |
 | Light-4j, October 47–68 and November 68–90 | Existing merged work clears owned TLS/decryptor buffers and limits cache retention. Secret source changes still need separate coverage for server and client TLS, bootstrap TLS, MRAS, Salesforce and info handlers. Shared TLS configuration arrays and configured Basic Auth values have longer lifetimes. November 69 remains a Hikari reconnect credential. |
 | Portal, October 73/76 and November 29 | The two operator entry points share the direct JDBC connector. The protected-file path bounds temporary buffers and the connector clears its Properties after use. The JDBC driver still receives a password String. |
-| Portal, November 30–41 | Local changes clear the array made by LoginUser and the copies owned by light-4j HashUtil on master and 2.x. This covers the shared hash/verification handoff used by login, create, onboard, change and reset. Request parser and map Strings remain. Rows 32 and 36 refer to the same reset token at generation and email delivery, with additional event and projection consumers. Token representation changes require coordination with token validation and replay. |
+| Portal, November 30–41 | Local changes clear the array made by LoginUser and the copies owned by light-4j HashUtil on master and 2.x. The login response omits the stored hash and the raw login record is no longer traced. Request parser and map Strings remain. The shared hasher wipes owned arrays and the PBEKeySpec. On the reviewed JDK 25 provider, PBKDF2KeyImpl retains its own password copy until Cleaner processing. Rows 32 and 36 refer to the same reset token at generation and email delivery, with additional event and projection consumers. Token representation changes require coordination with token validation and replay. |
 | Lambda, October 98 | The merged master and 2.x middleware clears the decoded credential buffers. The original authorization header belongs to the Lambda request. Configured credentials and the LDAP bind boundary still use Strings. |
+
+Review also confirmed two pre-existing Portal event defects. ChangePassword
+discards the calculated hashes, so the event can carry plaintext old and new
+passwords and the projection cannot match the plaintext old password against
+the stored hash. ResetPassword adds a new hash but leaves the plaintext
+password and confirmation fields in the event payload. The reviewed reset
+projection updates the token and version without assigning the new password.
+These command and projection defects remain open. Any repair needs to verify
+the current password or reset token before append, preserve replay behavior,
+and account for any previously stored plaintext payloads.
 
 This follow-up records local source work. The partner artifact, effective
 credential sources, TLS/JDBC/LDAP providers and deployment controls remain
