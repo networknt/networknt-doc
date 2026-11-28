@@ -259,6 +259,26 @@ logging sinks are absent from this export. Row 60 is the separate OAuth
 key-fetch site discussed above. Absence from the worksheet leaves partner
 closure dependent on the scan's revision and coverage.
 
+## A20 credential-lifetime follow-up — 2026-11-27
+
+The October ledger has 29 A20 findings. The November workbook repeats 26 of
+those paths and adds 14 scan locations (rows 29–41 and 69), for 43 distinct
+findings. November row 68 maps to October row 50 even though Checkmarx marks it
+NEW. The A23 and A24 findings retain their separate dispositions.
+
+| Repository and worksheet rows | Local hardening and remaining retention |
+|---|---|
+| HTTP-client, October 108–111 and November 61–64 | Local changes for master and 2.x add opt-in UTF-8 password files for the client keystore, private key, configured truststore and default truststore. Removing corresponding legacy values avoids retaining their secret Strings in that deployment. The bytes and chars owned by the loader are wiped. Provider-owned copies require provider-specific qualification. |
+| Light-4j, October 47–68 and November 68–90 | Existing merged work clears owned TLS/decryptor buffers and limits cache retention. Secret source changes still need separate coverage for server and client TLS, bootstrap TLS, MRAS, Salesforce and info handlers. Shared TLS configuration arrays and configured Basic Auth values have longer lifetimes. November 69 remains a Hikari reconnect credential. |
+| Portal, October 73/76 and November 29 | The two operator entry points share the direct JDBC connector. The protected-file path bounds temporary buffers and the connector clears its Properties after use. The JDBC driver still receives a password String. |
+| Portal, November 30–41 | Local changes clear the array made by LoginUser and the copies owned by light-4j HashUtil on master and 2.x. This covers the shared hash/verification handoff used by login, create, onboard, change and reset. Request parser and map Strings remain. Rows 32 and 36 refer to the same reset token at generation and email delivery, with additional event and projection consumers. Token representation changes require coordination with token validation and replay. |
+| Lambda, October 98 | The merged master and 2.x middleware clears the decoded credential buffers. The original authorization header belongs to the Lambda request. Configured credentials and the LDAP bind boundary still use Strings. |
+
+This follow-up records local source work. The partner artifact, effective
+credential sources, TLS/JDBC/LDAP providers and deployment controls remain
+unverified. Match any later rescan to the deployed revisions and re-evaluate
+findings that still point to legacy configuration or provider-owned copies.
+
 ## Merged remediation follow-up — 2026-10-28
 
 All four confirmed findings now have merged source fixes on both `master` and `2.x`. GitHub merge and issue states were verified on 2026-10-28: all four PRs are merged and all four issues are closed. Each repository's pair of PRs resolves both of its reported findings.
